@@ -6,7 +6,7 @@ Overhead is a free, open-source menu bar app for developers. Activity Monitor li
 adds them up by the git checkout they run from, so `node`, `xcodebuild` and a Python server show up as one line:
 "my-app, 6.1 GB".
 
-## Status: 0.3, early
+## Status: 0.4, early
 
 Working now:
 
@@ -27,12 +27,17 @@ Working now:
   button that sends a polite quit signal (SIGTERM) after you confirm. Other apps' listeners (AirPlay, Spotify) are
   only counted.
 
+- Simulators: every booted simulator with its runtime, when it booted, how many processes it runs, and the memory
+  and CPU of all of them together, with a Shut Down button (`xcrun simctl shutdown`; the device and its data stay).
+  A booted iOS simulator runs close to 300 processes, so an idle one left open for a day can hold many gigabytes,
+  much of it compressed or in swap.
+
 CPU per project is also the best guide to which project drains the battery: macOS does not report power per
-process.
+process. Memory per project and per simulator is the sum of each process's footprint, the figure Activity Monitor
+shows; it includes compressed memory, so the parts can add up to more than "in use".
 
 Planned:
 
-- Booted simulators and the memory they hold.
 - Park a project: stop its servers and simulators in one click, and start them again later. Parking never deletes
   files.
 

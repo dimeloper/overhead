@@ -6,6 +6,7 @@ enum Brand {
     static let pink = Color(red: 0.925, green: 0.282, blue: 0.600)
     static let gradient = LinearGradient(colors: [orange, pink], startPoint: .leading, endPoint: .trailing)
     /// Segment colours for the projects after the first, which takes the brand gradient.
+    static let simulator = Color(red: 0.851, green: 0.275, blue: 0.937)
     static let segments: [Color] = [Color(red: 0.655, green: 0.545, blue: 0.980), Color(red: 0.369, green: 0.918, blue: 0.831)]
 }
 
@@ -24,6 +25,10 @@ struct PopoverView: View {
             KeepAwakeRow(model: model)
             Divider()
             projectList
+            if !model.simulators.isEmpty {
+                Divider()
+                SimulatorList(model: model)
+            }
             if !model.ports.ports.isEmpty {
                 Divider()
                 PortList(model: model)
@@ -50,7 +55,7 @@ struct PopoverView: View {
                 }
                 Text("of \(ByteFormat.short(memory.total)) · swap \(ByteFormat.short(memory.swapUsed))")
                     .foregroundStyle(.secondary)
-                MemoryBar(memory: memory, projects: Array(model.attribution.projects.prefix(3)))
+                MemoryBar(memory: memory, projects: Array(model.attribution.projects.prefix(3)), simulators: model.simulators.reduce(UInt64(0)) { $0 + $1.footprint })
                     .padding(.top, 6)
                 HStack(alignment: .top, spacing: 8) {
                     Stat(title: "CPU", value: model.cpuLoad.map(ByteFormat.percent) ?? "—")
@@ -159,6 +164,71 @@ struct KeepAwakeRow: View {
     }
 }
 
+struct SimulatorList: View {
+    @ObservedObject var model: OverheadModel
+    @State private var armed: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("SIMULATORS")
+                Spacer()
+                Text("MEMORY")
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+
+            ForEach(model.simulators, id: \.simulator.udid) { usage in
+                let simulator = usage.simulator
+                HStack(spacing: 10) {
+                    Image(systemName: simulator.name.localizedCaseInsensitiveContains("ipad") ? "ipad" : "iphone")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 18)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(simulator.name).font(.body.weight(.semibold)).lineLimit(1)
+                        Text(detail(usage)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    Spacer()
+                    Text(ByteFormat.short(usage.footprint)).font(.body.weight(.semibold)).monospacedDigit()
+                        .help("Every process this simulator runs, added up as Activity Monitor would. Much of it may be compressed or in swap rather than in RAM.")
+                    if model.shuttingDown.contains(simulator.udid) {
+                        ProgressView().controlSize(.small).frame(width: 70)
+                    } else {
+                        Button(armed == simulator.udid ? "Confirm" : "Shut Down") {
+                            if armed == simulator.udid {
+                                model.shutDown(simulator)
+                                armed = nil
+                            } else {
+                                armed = simulator.udid
+                            }
+                        }
+                        .buttonStyle(.borderless)
+                        .foregroundStyle(armed == simulator.udid ? .red : .accentColor)
+                        .frame(width: 70, alignment: .trailing)
+                        .help("Quits the apps in \(simulator.name) and frees its memory. The simulator and its data stay.")
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+            }
+        }
+        .padding(.bottom, 6)
+    }
+
+    private func detail(_ usage: SimulatorUsage) -> String {
+        var parts = [usage.simulator.runtime]
+        if let booted = usage.simulator.bootedAt {
+            parts.append("booted \(booted.formatted(.relative(presentation: .named)))")
+        }
+        parts.append("\(usage.processCount) processes")
+        parts.append("\(ByteFormat.percent(usage.cpu)) CPU")
+        return parts.joined(separator: " · ")
+    }
+}
+
 struct PortList: View {
     @ObservedObject var model: OverheadModel
     /// Stop asks twice: the first click arms the button, the second sends SIGTERM.
@@ -241,6 +311,7 @@ struct PressurePill: View {
 struct MemoryBar: View {
     let memory: SystemMemory
     let projects: [ProjectUsage]
+    let simulators: UInt64
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -249,6 +320,7 @@ struct MemoryBar: View {
                     ForEach(Array(projects.enumerated()), id: \.offset) { index, usage in
                         segment(index).frame(width: width(usage.footprint, proxy.size.width))
                     }
+                    Brand.simulator.frame(width: width(simulators, proxy.size.width))
                     Color.gray.opacity(0.55).frame(width: width(otherUsed, proxy.size.width))
                     Spacer(minLength: 0)
                 }
@@ -264,6 +336,12 @@ struct MemoryBar: View {
                         Text("\(usage.project.name) \(ByteFormat.short(usage.footprint))").lineLimit(1)
                     }
                 }
+                if simulators > 0 {
+                    HStack(spacing: 4) {
+                        Brand.simulator.frame(width: 7, height: 7).clipShape(Circle())
+                        Text("Simulators \(ByteFormat.short(simulators))").lineLimit(1)
+                    }
+                }
                 Text("Other \(ByteFormat.short(otherUsed))").foregroundStyle(.secondary)
             }
             .font(.caption)
@@ -271,13 +349,20 @@ struct MemoryBar: View {
     }
 
     private var otherUsed: UInt64 {
-        let projectTotal = projects.reduce(UInt64(0)) { $0 + $1.footprint }
+        let projectTotal = projects.reduce(simulators) { $0 + $1.footprint }
         return memory.used > projectTotal ? memory.used - projectTotal : 0
+    }
+
+    /// Per-process figures count compressed memory at its full size, so projects and simulators can add up to more
+    /// than "in use". Their segments then share the used part of the bar in proportion instead of overflowing it.
+    private var scale: Double {
+        let parts = projects.reduce(simulators) { $0 + $1.footprint }
+        return parts > memory.used && parts > 0 ? Double(memory.used) / Double(parts) : 1
     }
 
     private func width(_ bytes: UInt64, _ total: CGFloat) -> CGFloat {
         guard memory.total > 0 else { return 0 }
-        return total * CGFloat(Double(bytes) / Double(memory.total))
+        return total * CGFloat(Double(bytes) * scale / Double(memory.total))
     }
 
     @ViewBuilder private func segment(_ index: Int) -> some View {

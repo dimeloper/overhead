@@ -9,6 +9,9 @@ final class OverheadModel: ObservableObject {
     @Published private(set) var battery: BatteryReading?
     @Published private(set) var runway: TimeInterval?
     @Published private(set) var ports = PortReport(ports: [], otherCount: 0)
+    @Published private(set) var simulators: [SimulatorUsage] = []
+    /// UDIDs being shut down, so the row can show it until the simulator is gone.
+    @Published private(set) var shuttingDown: Set<String> = []
     @Published private(set) var awakeReason: String?
     @Published private(set) var lastError: String?
     @Published var keepAwake: KeepAwakeMode {
@@ -71,6 +74,18 @@ final class OverheadModel: ObservableObject {
         }
     }
 
+    func shutDown(_ simulator: BootedSimulator) {
+        shuttingDown.insert(simulator.udid)
+        Task.detached(priority: .userInitiated) {
+            let result = Result { try SimulatorScanner.shutDown(simulator.udid) }
+            await MainActor.run {
+                self.shuttingDown.remove(simulator.udid)
+                if case .failure(let error) = result { self.lastError = "Could not shut down \(simulator.name): \(error)" }
+                self.refresh()
+            }
+        }
+    }
+
     /// SIGTERM, so the server can shut down cleanly. Only ever offered for this user's own processes.
     func stop(_ port: PortUsage) {
         kill(port.pid, SIGTERM)
@@ -86,6 +101,7 @@ final class OverheadModel: ObservableObject {
         let rates = tracker.update(samples, at: now)
         attribution = ProjectAttribution.attribute(samples, cpu: rates, to: projects)
         if let listeners { ports = PortScanner.report(listeners, samples: samples, projects: projects) }
+        simulators = SimulatorScanner.usage(of: SimulatorScanner.booted(in: samples), samples: samples, cpu: rates)
 
         if let ticks, let previousTicks { cpuLoad = ticks.load(since: previousTicks) }
         previousTicks = ticks

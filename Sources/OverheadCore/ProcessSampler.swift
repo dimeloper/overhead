@@ -9,13 +9,17 @@ public struct ProcessSample: Sendable, Equatable {
     public var footprint: UInt64
     /// User + system CPU time since the process started, in nanoseconds.
     public var cpuTime: UInt64
+    public var parentPid: pid_t
+    public var startedAt: Date?
 
-    public init(pid: pid_t, name: String, workingDirectory: String?, footprint: UInt64, cpuTime: UInt64 = 0) {
+    public init(pid: pid_t, name: String, workingDirectory: String?, footprint: UInt64, cpuTime: UInt64 = 0, parentPid: pid_t = 0, startedAt: Date? = nil) {
         self.pid = pid
         self.name = name
         self.workingDirectory = workingDirectory
         self.footprint = footprint
         self.cpuTime = cpuTime
+        self.parentPid = parentPid
+        self.startedAt = startedAt
     }
 }
 
@@ -36,13 +40,31 @@ public enum ProcessSampler {
             $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
         }
         guard ok == 0 else { return nil }
+        var bsd = proc_bsdinfo()
+        let bsdSize = Int32(MemoryLayout<proc_bsdinfo>.size)
+        let hasBsd = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &bsd, bsdSize) == bsdSize
         return ProcessSample(
             pid: pid,
             name: name(pid),
             workingDirectory: workingDirectory(pid),
             footprint: usage.ri_phys_footprint,
-            cpuTime: nanoseconds(usage.ri_user_time + usage.ri_system_time)
+            cpuTime: nanoseconds(usage.ri_user_time + usage.ri_system_time),
+            parentPid: hasBsd ? pid_t(bsd.pbi_ppid) : 0,
+            startedAt: hasBsd ? Date(timeIntervalSince1970: TimeInterval(bsd.pbi_start_tvsec)) : nil
         )
+    }
+
+    /// The process's argv, from `KERN_PROCARGS2`: argc, the executable path, padding, then the arguments.
+    public static func arguments(_ pid: pid_t) -> [String] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        var buffer = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buffer, &size, nil, 0) == 0, size > MemoryLayout<Int32>.size else { return [] }
+        let argc = Int(buffer.withUnsafeBytes { $0.load(as: Int32.self) })
+        let parts = buffer[MemoryLayout<Int32>.size..<size].split(separator: 0).map { String(decoding: $0, as: UTF8.self) }
+        guard argc > 0, parts.count > argc else { return [] }
+        return Array(parts[1...argc])
     }
 
     /// `proc_pid_rusage` reports CPU time in Mach ticks, not nanoseconds: 125/3 ns each on Apple silicon, 1 on Intel.

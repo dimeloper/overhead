@@ -33,6 +33,10 @@ final class SmokeTests: XCTestCase {
         let ports = PortScanner.report(PortScanner.listeners(pids: samples.map(\.pid)), samples: samples, projects: projects)
         for port in ports.ports { print("  :\(port.port) \(port.process) (\(port.project ?? "outside projects"))") }
         print("listeners from other apps \(ports.otherCount)")
+        for usage in SimulatorScanner.usage(of: SimulatorScanner.booted(in: samples), samples: samples, cpu: rates) {
+            let sim = usage.simulator
+            print("  sim \(sim.name) (\(sim.runtime)) \(sim.udid): \(ByteFormat.short(usage.footprint)), \(usage.processCount) processes, \(ByteFormat.percent(usage.cpu)) CPU, booted \(sim.bootedAt.map { "\($0)" } ?? "?")")
+        }
         let busy = KeepAwakePolicy().busyReason(samples: samples, rates: rates, projects: result.projects, cores: ProcessInfo.processInfo.activeProcessorCount)
         print("automatic keep-awake would \(busy.map { "hold: \($0)" } ?? "let the Mac sleep")")
 
