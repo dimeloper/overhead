@@ -5,6 +5,24 @@ import SwiftUI
 /// It lays the view out in a real window, so scroll views, pickers and buttons render as they do on screen.
 @MainActor
 enum Snapshot {
+    /// The menu bar image as macOS tints it: once on a light bar, once on a dark one, at 4x so it can be read.
+    static func menuBar(_ readout: MenuBarReadout) throws -> Data {
+        let strip = VStack(alignment: .leading, spacing: 0) {
+            readout.padding(.horizontal, 8).frame(height: 24).background(Color(white: 0.92))
+            readout.colorInvert().padding(.horizontal, 8).frame(height: 24).background(Color(white: 0.12))
+            // Layout check for the unplugged case, which a plugged-in Mac cannot show for real.
+            MenuBarReadout(cpu: "100%", memory: "63.9G", battery: "10:00", holdingAwake: true)
+                .padding(.horizontal, 8).frame(height: 24).background(Color(white: 0.92))
+        }
+        let renderer = ImageRenderer(content: strip)
+        renderer.scale = 4
+        guard let image = renderer.nsImage, let tiff = image.tiffRepresentation,
+              let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else {
+            throw CocoaError(.fileWriteUnknown)
+        }
+        return png
+    }
+
     static func runIfRequested(model: OverheadModel) {
         let arguments = CommandLine.arguments
         guard let flag = arguments.firstIndex(of: "--snapshot"), flag + 1 < arguments.count else { return }
@@ -28,6 +46,7 @@ enum Snapshot {
                 host.cacheDisplay(in: host.bounds, to: rep)
                 do {
                     try rep.representation(using: .png, properties: [:])?.write(to: output)
+                    try menuBar(model.menuReadout).write(to: output.deletingPathExtension().appendingPathExtension("menubar.png"))
                     print("snapshot \(Int(host.bounds.width))x\(Int(host.bounds.height)) → \(output.path)")
                     exit(0)
                 } catch {

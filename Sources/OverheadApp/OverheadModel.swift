@@ -43,7 +43,10 @@ final class OverheadModel: ObservableObject {
     private let assertion = SleepAssertion()
     private var refreshCount = 0
     private var timer: Timer?
+    private var fastTimer: Timer?
 
+    /// Machine CPU and memory are two kernel calls, cheap enough for the menu bar to move every second.
+    private let fastInterval: TimeInterval = 1
     /// Sampling is cheap (a few ms for ~1,000 processes); finding checkouts walks the disk, so it runs once a minute.
     private let sampleInterval: TimeInterval = 3
     private let projectRescanInterval: TimeInterval = 60
@@ -54,17 +57,51 @@ final class OverheadModel: ObservableObject {
         keepAwake = UserDefaults.standard.string(forKey: Self.keepAwakeKey).flatMap(KeepAwakeMode.init) ?? .automatic
         devSweeperHintDismissed = UserDefaults.standard.bool(forKey: Self.devSweeperHintKey)
         parked = store.load()
+        tick()
         refresh()
+        fastTimer = Timer.scheduledTimer(withTimeInterval: fastInterval, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
         timer = Timer.scheduledTimer(withTimeInterval: sampleInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
         }
     }
 
-    var menuTitle: String {
-        guard let memory else { return "—" }
-        let used = ByteFormat.short(memory.used)
-        guard let runway, battery?.onExternalPower == false else { return used }
-        return "\(used) · \(ByteFormat.clock(runway))"
+    var menuReadout: MenuBarReadout {
+        MenuBarReadout(
+            cpu: cpuLoad.map(ByteFormat.percent) ?? "–",
+            memory: memory.map { ByteFormat.menu($0.used) } ?? "–",
+            battery: menuBattery,
+            holdingAwake: isHoldingAwake
+        )
+    }
+
+    /// What VoiceOver reads for the menu bar image.
+    var menuAccessibilityLabel: String {
+        var parts = ["Overhead", "CPU \(menuReadout.cpu)", "memory \(memory.map { ByteFormat.short($0.used) } ?? "unknown")"]
+        if let battery = menuBattery { parts.append("battery \(battery)") }
+        if isHoldingAwake { parts.append("keeping the Mac awake") }
+        return parts.joined(separator: ", ")
+    }
+
+    /// Only unplugged: time left at this pace once there is draw to measure, the charge level until then.
+    private var menuBattery: String? {
+        guard let battery, !battery.onExternalPower else { return nil }
+        return runway.map(ByteFormat.clock) ?? "\(battery.percent)%"
+    }
+
+    /// The fast path: machine-wide CPU and memory only.
+    func tick() {
+        if let ticks = CPUTicks.read() {
+            if let previousTicks { cpuLoad = ticks.load(since: previousTicks) }
+            previousTicks = ticks
+        }
+        do {
+            memory = try SystemMemory.read()
+            if lastError?.hasPrefix("Could not read memory") == true { lastError = nil }
+        } catch {
+            lastError = "Could not read memory: \(error)"
+        }
     }
 
     var isHoldingAwake: Bool { awakeReason != nil }
@@ -78,11 +115,9 @@ final class OverheadModel: ObservableObject {
             let found = rescan ? ProjectDiscovery.discover(home: FileManager.default.homeDirectoryForCurrentUser) : known
             let samples = ProcessSampler.sampleAll()
             let listeners = scanPorts ? PortScanner.listeners(pids: samples.map(\.pid)) : nil
-            let ticks = CPUTicks.read()
             let battery = BatteryReading.read()
-            let memory = Result { try SystemMemory.read() }
             await MainActor.run {
-                self.apply(found: rescan ? found : nil, samples: samples, listeners: listeners, ticks: ticks, battery: battery, memory: memory)
+                self.apply(found: rescan ? found : nil, samples: samples, listeners: listeners, battery: battery)
             }
         }
     }
@@ -183,7 +218,7 @@ final class OverheadModel: ObservableObject {
         ports.ports.removeAll { $0.pid == port.pid }
     }
 
-    private func apply(found: [Project]?, samples: [ProcessSample], listeners: [Listener]?, ticks: CPUTicks?, battery: BatteryReading?, memory: Result<SystemMemory, Error>) {
+    private func apply(found: [Project]?, samples: [ProcessSample], listeners: [Listener]?, battery: BatteryReading?) {
         let now = Date()
         if let found {
             projects = found
@@ -193,9 +228,6 @@ final class OverheadModel: ObservableObject {
         attribution = ProjectAttribution.attribute(samples, cpu: rates, to: projects)
         if let listeners { ports = PortScanner.report(listeners, samples: samples, projects: projects) }
         simulators = SimulatorScanner.usage(of: SimulatorScanner.booted(in: samples), samples: samples, cpu: rates)
-
-        if let ticks, let previousTicks { cpuLoad = ticks.load(since: previousTicks) }
-        previousTicks = ticks
 
         self.battery = battery
         if let battery, !battery.onExternalPower, battery.dischargeWatts > 0 {
@@ -208,14 +240,6 @@ final class OverheadModel: ObservableObject {
 
         let busy = policy.busyReason(samples: samples, rates: rates, projects: attribution.projects, cores: ProcessInfo.processInfo.activeProcessorCount)
         updateAssertion(busy: busy, now: now)
-
-        switch memory {
-        case .success(let value):
-            self.memory = value
-            lastError = nil
-        case .failure(let error):
-            lastError = "Could not read memory: \(error)"
-        }
     }
 
     private func updateAssertion(busy: String?, now: Date) {

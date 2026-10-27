@@ -14,10 +14,8 @@ struct OverheadApp: App {
         MenuBarExtra {
             PopoverView(model: model)
         } label: {
-            HStack(spacing: 4) {
-                if model.isHoldingAwake { Image(systemName: "cup.and.saucer.fill") }
-                Text(model.menuTitle).monospacedDigit()
-            }
+            Image(nsImage: model.menuReadout.image())
+                .accessibilityLabel(model.menuAccessibilityLabel)
         }
         .menuBarExtraStyle(.window)
     }
