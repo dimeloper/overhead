@@ -54,7 +54,6 @@ public struct ParkedProject: Codable, Sendable, Equatable {
 
 public enum Parker {
     static let shells: Set<String> = ["zsh", "bash", "fish", "sh", "dash", "login", "tmux", "screen", "nu"]
-    static let agents = ["claude", "codex", "gemini"]
 
     public static func plan(
         for project: Project,
@@ -73,7 +72,8 @@ public enum Parker {
 
         var servers: [ServerToStop] = []
         for (pid, entries) in Dictionary(grouping: ports.ports.filter { $0.project == project.name }, by: \.pid) {
-            guard let sample = byPid[pid] else { continue }
+            // An agent's own tools (an MCP server on a port) belong to the agent, and Park never stops agents.
+            guard let sample = byPid[pid], !ProjectAttribution.hasAgentAncestor(sample, byPid) else { continue }
             let leader = byPid[sample.processGroup]
             let useGroup = leader.map { inProject($0) && !shells.contains($0.name) && $0.processGroup != getpgrp() } ?? false
             let source = useGroup ? leader! : sample
@@ -90,7 +90,7 @@ public enum Parker {
         let matched = simulators.filter { simulator in
             (appsBySimulator[simulator.udid] ?? []).contains { BundleIdentifiers.matches(app: $0, declared: bundleIDs) }
         }
-        let agentNames = samples.filter { sample in agents.contains(sample.name) && inProject(sample) }.map(\.name)
+        let agentNames = samples.filter { sample in ProjectAttribution.agents.contains(sample.name) && inProject(sample) }.map(\.name)
 
         return ParkPlan(
             project: project,

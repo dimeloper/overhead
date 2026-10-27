@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// `Overhead --snapshot <file.png> [--full]` renders the popover offscreen once real samples are in, writes a PNG and quits.
+/// `Overhead --snapshot <file.png> [--full] [--park <project>]` renders the popover offscreen once real samples are in, writes a PNG and quits.
 /// It lays the view out in a real window, so scroll views, pickers and buttons render as they do on screen.
 @MainActor
 enum Snapshot {
@@ -46,6 +46,18 @@ enum Snapshot {
         let arguments = CommandLine.arguments
         guard let flag = arguments.firstIndex(of: "--snapshot"), flag + 1 < arguments.count else { return }
         let output = URL(fileURLWithPath: arguments[flag + 1])
+
+        // `--park <project>` opens that project's Park panel first, the way clicking Park does.
+        if let park = arguments.firstIndex(of: "--park"), park + 1 < arguments.count {
+            let name = arguments[park + 1]
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4) {
+                if let project = model.attribution.projects.first(where: { $0.project.name == name })?.project {
+                    model.preparePark(project)
+                } else {
+                    FileHandle.standardError.write(Data("no running project named \(name)\n".utf8))
+                }
+            }
+        }
 
         // Two samples are needed before CPU figures exist; the ports scan runs on the first.
         DispatchQueue.main.asyncAfter(deadline: .now() + 7) {

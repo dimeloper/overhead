@@ -133,3 +133,36 @@ final class BundleIdentifierTests: XCTestCase {
         XCTAssertFalse(BundleIdentifiers.matches(app: "com.acme.application", declared: ["com.acme.app"]))
     }
 }
+
+final class AgentToolTests: XCTestCase {
+    private let app = Project(name: "app", path: "/code/app")
+
+    /// The shape seen for real: the Claude app's `disclaimer` launches `claude`, which starts MCP servers.
+    private var session: [ProcessSample] {
+        [
+            ProcessSample(pid: 10, name: "disclaimer", workingDirectory: "/code/app", footprint: 0, parentPid: 1, processGroup: 10),
+            ProcessSample(pid: 11, name: "claude", workingDirectory: "/code/app", footprint: 200, parentPid: 10, processGroup: 10),
+            ProcessSample(pid: 12, name: "node", workingDirectory: "/code/app", footprint: 40, parentPid: 11, processGroup: 10),
+            ProcessSample(pid: 13, name: "python3.13", workingDirectory: "/code/app", footprint: 5, parentPid: 12, processGroup: 10),
+            ProcessSample(pid: 20, name: "zsh", workingDirectory: "/code/app", footprint: 1, parentPid: 1, processGroup: 20),
+        ]
+    }
+
+    func testAnAgentsToolsAreCountedNotListed() {
+        let usage = ProjectAttribution.attribute(session, to: [app]).projects.first
+
+        XCTAssertEqual(usage?.processes, ["claude", "zsh"])
+        XCTAssertEqual(usage?.agentSessions, 1)
+        XCTAssertEqual(usage?.agentTools, 2, "node and python, not the disclaimer launcher")
+        XCTAssertEqual(usage?.footprint, 246, "tools still count toward the project's memory")
+    }
+
+    func testParkNeverStopsAnAgentsToolEvenWhenItListens() {
+        let ports = PortReport(ports: [PortUsage(port: 7777, pid: 12, process: "node", project: "app")], otherCount: 0)
+        let plan = Parker.plan(for: app, projects: [app], samples: session, ports: ports, simulators: [], appsBySimulator: [:], bundleIDs: [])
+
+        XCTAssertTrue(plan.servers.isEmpty)
+        XCTAssertTrue(plan.isEmpty)
+        XCTAssertEqual(plan.agents, ["claude"])
+    }
+}

@@ -30,7 +30,18 @@ struct PopoverView: View {
             // The lists can outgrow the screen on a busy Mac; the header and footer stay put.
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
+                    if let result = model.parkResult {
+                        Label(result, systemImage: "checkmark.circle.fill")
+                            .font(.callout)
+                            .foregroundStyle(.green)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 10)
+                    }
                     projectList
+                    if !model.parked.isEmpty {
+                        Divider()
+                        ParkedList(model: model)
+                    }
                     if !model.simulators.isEmpty {
                         Divider()
                         SimulatorList(model: model)
@@ -38,10 +49,6 @@ struct PopoverView: View {
                     if !model.ports.ports.isEmpty {
                         Divider()
                         PortList(model: model)
-                    }
-                    if !model.parked.isEmpty {
-                        Divider()
-                        ParkedList(model: model)
                     }
                 }
                 // Preferences do not cross out of a ScrollView on macOS (it is an NSScrollView underneath), so the
@@ -408,11 +415,37 @@ struct ProjectRow: View {
     @ObservedObject var model: OverheadModel
     let usage: ProjectUsage
 
+    static let agentNames = ["claude": "Claude Code", "codex": "Codex", "gemini": "Gemini"]
+
+    /// Process names, with each coding agent shown once with its tool count: "Claude Code + 6 tools".
+    static func describe(_ usage: ProjectUsage) -> [String] {
+        var parts: [String] = []
+        var agentShown = false
+        for name in usage.processes {
+            guard let agent = agentNames[name] else { parts.append(name); continue }
+            guard !agentShown else { continue }
+            agentShown = true
+            let sessions = usage.agentSessions > 1 ? "\(usage.agentSessions) \(agent) sessions" : agent
+            parts.append(usage.agentTools > 0 ? "\(sessions) + \(usage.agentTools) tools" : sessions)
+        }
+        return Array(parts.prefix(4))
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
-                Text(usage.project.name).font(.body.weight(.semibold)).lineLimit(1)
-                Text(([ByteFormat.percent(usage.cpu) + " CPU"] + usage.processes.prefix(4)).joined(separator: " · "))
+                HStack(spacing: 6) {
+                    Text(usage.project.name).font(.body.weight(.semibold)).lineLimit(1)
+                    if model.isParked(usage.project) {
+                        Text("Parked")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                    }
+                }
+                Text(([ByteFormat.percent(usage.cpu) + " CPU"] + Self.describe(usage)).joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -421,7 +454,7 @@ struct ProjectRow: View {
             Text(ByteFormat.short(usage.footprint))
                 .font(.body.weight(.semibold))
                 .monospacedDigit()
-            Button("Park") { model.preparePark(usage.project) }
+            Button(model.isParked(usage.project) ? "Park again" : "Park") { model.preparePark(usage.project) }
                 .buttonStyle(.borderless)
                 .foregroundStyle(.secondary)
                 .disabled(model.isPreparingPark || model.planning != nil)
@@ -440,10 +473,14 @@ struct ParkPlanPanel: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Park \(plan.project.name)?").font(.body.weight(.semibold))
+            Text(plan.isEmpty ? "Nothing to stop in \(plan.project.name)" : "Park \(plan.project.name)?").font(.body.weight(.semibold))
             if plan.isEmpty {
-                Text("Nothing to stop: no dev servers listening and no simulator running this app. Parking keeps the setup sheet.")
-                    .font(.caption).foregroundStyle(.secondary)
+                Text(plan.agents.isEmpty
+                     ? "No dev server is listening and no simulator is running this app."
+                     : "Only coding agents and their tools are running here, and Park never stops agents. No dev server is listening and no simulator is running this app.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             ForEach(plan.servers, id: \.pid) { server in
                 line("stop.circle", "Stop \(server.ports.map { ":\($0)" }.joined(separator: " ")) \(server.process)", server.command)
@@ -451,7 +488,7 @@ struct ParkPlanPanel: View {
             ForEach(plan.simulators, id: \.udid) { simulator in
                 line("iphone", "Shut down \(simulator.name)", simulator.runtime)
             }
-            if !plan.agents.isEmpty {
+            if !plan.agents.isEmpty && !plan.isEmpty {
                 line("person.wave.2", "Leaves running: \(plan.agents.count) agent session\(plan.agents.count == 1 ? "" : "s")", "Park never stops coding agents")
             }
             if let changes = plan.uncommittedChanges, changes > 0 {
@@ -459,9 +496,11 @@ struct ParkPlanPanel: View {
             }
             HStack {
                 Spacer()
-                Button("Cancel") { model.cancelPark() }
-                Button("Park Project") { model.confirmPark() }
-                    .keyboardShortcut(.defaultAction)
+                Button(plan.isEmpty ? "Close" : "Cancel") { model.cancelPark() }
+                    .keyboardShortcut(plan.isEmpty ? .defaultAction : .cancelAction)
+                Button(plan.isEmpty ? "Save Setup Sheet" : "Park Project") { model.confirmPark() }
+                    .keyboardShortcut(plan.isEmpty ? nil : .defaultAction)
+                    .help(plan.isEmpty ? "Keeps the branch and .env file names so you can find your way back later. Nothing stops." : "")
             }
             .padding(.top, 4)
         }

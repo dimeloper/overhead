@@ -18,6 +18,8 @@ final class OverheadModel: ObservableObject {
     /// The plan shown for confirmation after Park is clicked, before anything stops.
     @Published private(set) var planning: ParkPlan?
     @Published private(set) var isPreparingPark = false
+    /// What the last Park did, shown briefly so parking never looks like nothing happened.
+    @Published private(set) var parkResult: String?
     @Published var devSweeperHintDismissed: Bool {
         didSet { UserDefaults.standard.set(devSweeperHintDismissed, forKey: Self.devSweeperHintKey) }
     }
@@ -206,8 +208,25 @@ final class OverheadModel: ObservableObject {
                 self.parked.removeAll { $0.path == sheet.path }
                 self.parked.insert(sheet, at: 0)
                 self.saveParked()
+                self.showParkResult(for: plan)
                 self.refresh()
             }
+        }
+    }
+
+    func isParked(_ project: Project) -> Bool {
+        parked.contains { $0.path == project.path }
+    }
+
+    private func showParkResult(for plan: ParkPlan) {
+        var done: [String] = []
+        if !plan.servers.isEmpty { done.append("stopped \(plan.servers.count) server\(plan.servers.count == 1 ? "" : "s")") }
+        if !plan.simulators.isEmpty { done.append("shut down \(plan.simulators.map(\.name).joined(separator: ", "))") }
+        let message = "Parked \(plan.project.name)" + (done.isEmpty ? ": setup sheet saved" : ": " + done.joined(separator: ", "))
+        parkResult = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(8))
+            if self.parkResult == message { self.parkResult = nil }
         }
     }
 

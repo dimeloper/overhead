@@ -16,8 +16,13 @@ public struct ProjectUsage: Sendable, Equatable {
     public var footprint: UInt64
     /// Share of the whole machine's CPU since the previous sample, 0...1.
     public var cpu: Double
-    /// Process names, largest memory first, without duplicates.
+    /// Process names, largest memory first, without duplicates. A coding agent's own tools (its MCP servers, the
+    /// shells it runs) are counted in `agentTools` instead of listed, so they do not pass for the project's servers.
     public var processes: [String]
+    /// Coding agent sessions (`claude`, `codex`, `gemini`) running in the project.
+    public var agentSessions: Int = 0
+    /// Processes those sessions started.
+    public var agentTools: Int = 0
 }
 
 public struct Attribution: Sendable, Equatable {
@@ -90,7 +95,8 @@ public enum ProjectAttribution {
     /// its own row instead of inflating the repo's.
     public static func attribute(_ samples: [ProcessSample], cpu: [pid_t: Double] = [:], to projects: [Project]) -> Attribution {
         let byDepth = projects.sorted { $0.path.count > $1.path.count }
-        var totals: [Project: (bytes: UInt64, cpu: Double, processes: [(String, UInt64)])] = [:]
+        let byPid = Dictionary(samples.map { ($0.pid, $0) }, uniquingKeysWith: { first, _ in first })
+        var totals: [Project: (bytes: UInt64, cpu: Double, processes: [(String, UInt64)], agents: Int, tools: Int)] = [:]
         var unattributed: UInt64 = 0
 
         for sample in samples {
@@ -98,17 +104,40 @@ public enum ProjectAttribution {
                 unattributed += sample.footprint
                 continue
             }
-            totals[project, default: (0, 0, [])].bytes += sample.footprint
-            totals[project, default: (0, 0, [])].cpu += cpu[sample.pid] ?? 0
-            totals[project, default: (0, 0, [])].processes.append((sample.name, sample.footprint))
+            totals[project, default: (0, 0, [], 0, 0)].bytes += sample.footprint
+            totals[project, default: (0, 0, [], 0, 0)].cpu += cpu[sample.pid] ?? 0
+            if agents.contains(sample.name) {
+                totals[project, default: (0, 0, [], 0, 0)].agents += 1
+                totals[project, default: (0, 0, [], 0, 0)].processes.append((sample.name, sample.footprint))
+            } else if agentWrappers.contains(sample.name) || hasAgentAncestor(sample, byPid) {
+                totals[project, default: (0, 0, [], 0, 0)].tools += agentWrappers.contains(sample.name) ? 0 : 1
+            } else {
+                totals[project, default: (0, 0, [], 0, 0)].processes.append((sample.name, sample.footprint))
+            }
         }
 
         let usages = totals.map { project, total in
             var seen = Set<String>()
             let names = total.processes.sorted { $0.1 > $1.1 }.map(\.0).filter { seen.insert($0).inserted }
-            return ProjectUsage(project: project, footprint: total.bytes, cpu: total.cpu, processes: names)
+            return ProjectUsage(project: project, footprint: total.bytes, cpu: total.cpu, processes: names,
+                                agentSessions: total.agents, agentTools: total.tools)
         }
         return Attribution(projects: usages.sorted { $0.footprint > $1.footprint }, unattributed: unattributed)
+    }
+
+    public static let agents: Set<String> = ["claude", "codex", "gemini"]
+    /// Launchers that wrap an agent session, such as the Claude app's `disclaimer` helper. Part of the session, not a tool.
+    static let agentWrappers: Set<String> = ["disclaimer"]
+
+    /// Walks up the parent chain, a few levels at most, looking for a coding agent.
+    static func hasAgentAncestor(_ sample: ProcessSample, _ byPid: [pid_t: ProcessSample]) -> Bool {
+        var pid = sample.parentPid
+        for _ in 0..<8 {
+            guard pid > 1, let parent = byPid[pid] else { return false }
+            if agents.contains(parent.name) { return true }
+            pid = parent.parentPid
+        }
+        return false
     }
 
     /// The deepest project that contains `path`.
