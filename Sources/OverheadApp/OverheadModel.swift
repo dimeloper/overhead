@@ -23,6 +23,9 @@ final class OverheadModel: ObservableObject {
     @Published var devSweeperHintDismissed: Bool {
         didSet { UserDefaults.standard.set(devSweeperHintDismissed, forKey: Self.devSweeperHintKey) }
     }
+    @Published var agentNodHintDismissed: Bool {
+        didSet { UserDefaults.standard.set(agentNodHintDismissed, forKey: Self.agentNodHintKey) }
+    }
 
     // MARK: Settings, each saved as it changes
 
@@ -54,6 +57,8 @@ final class OverheadModel: ObservableObject {
     private static let keepAwakeKey = "keepAwakeMode"
     private static let devSweeperHintKey = "devSweeperHintDismissed"
     private static let devSweeperBundleID = "com.devsweeper.DevSweeper"
+    private static let agentNodHintKey = "agentNodHintDismissed"
+    private static let agentNodBundleID = "app.agentnod.mac"
     private let store = ParkedStore()
 
     private var projects: [Project] = []
@@ -85,6 +90,7 @@ final class OverheadModel: ObservableObject {
         if demo { stored.removePersistentDomain(forName: "overhead-demo") }
         keepAwake = stored.string(forKey: Self.keepAwakeKey).flatMap(KeepAwakeMode.init) ?? .automatic
         devSweeperHintDismissed = stored.bool(forKey: Self.devSweeperHintKey)
+        agentNodHintDismissed = stored.bool(forKey: Self.agentNodHintKey)
         func flag(_ key: String, _ fallback: Bool) -> Bool { stored.object(forKey: key) as? Bool ?? fallback }
         showCPU = flag("showCPU", true)
         showMemory = flag("showMemory", true)
@@ -261,18 +267,30 @@ final class OverheadModel: ObservableObject {
         do { try store.save(parked) } catch { lastError = "Could not save parked projects: \(error)" }
     }
 
-    // MARK: DevSweeper
+    // MARK: DevSweeper and AgentNod
 
-    var devSweeperInstalled: Bool {
-        NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.devSweeperBundleID) != nil
-    }
+    /// The demo pretends neither is installed, so its screenshots look the same on every Mac.
+    var devSweeperInstalled: Bool { !isDemo && installedApp(Self.devSweeperBundleID) != nil }
+    var agentNodInstalled: Bool { !isDemo && installedApp(Self.agentNodBundleID) != nil }
+
+    /// Coding agent sessions running across all projects.
+    var agentSessions: Int { attribution.projects.reduce(0) { $0 + $1.agentSessions } }
 
     /// Opens DevSweeper when it is installed, otherwise its website.
-    func openDevSweeper() {
-        if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.devSweeperBundleID) {
+    func openDevSweeper() { open(Self.devSweeperBundleID, site: "https://devsweeper.com/?ref=overhead") }
+
+    /// Opens AgentNod when it is installed, otherwise its website.
+    func openAgentNod() { open(Self.agentNodBundleID, site: "https://agentnod.app/?ref=overhead") }
+
+    private func installedApp(_ bundleID: String) -> URL? {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)
+    }
+
+    private func open(_ bundleID: String, site: String) {
+        if let app = installedApp(bundleID) {
             NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
-        } else if let site = URL(string: "https://devsweeper.com/?ref=overhead") {
-            NSWorkspace.shared.open(site)
+        } else if let url = URL(string: site) {
+            NSWorkspace.shared.open(url)
         }
     }
 

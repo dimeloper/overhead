@@ -141,6 +141,15 @@ struct PopoverView: View {
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                 }
+                // Only for people running agents who do not have AgentNod yet.
+                if model.agentSessions > 0, !model.agentNodInstalled, !model.agentNodHintDismissed {
+                    HintRow(
+                        text: "Agents waiting on a permission prompt? Answer them from a notification or your phone.",
+                        action: "Get AgentNod",
+                        perform: model.openAgentNod,
+                        dismiss: { model.agentNodHintDismissed = true }
+                    )
+                }
             }
         }
         .padding(.bottom, 6)
@@ -571,25 +580,12 @@ struct ParkedList: View {
             }
 
             if !model.devSweeperHintDismissed {
-                HStack(spacing: 8) {
-                    Text("Parked projects still keep their node_modules, Pods and build output on disk.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button(model.devSweeperInstalled ? "Open DevSweeper" : "Get DevSweeper") { model.openDevSweeper() }
-                        .buttonStyle(.borderless)
-                    Button {
-                        model.devSweeperHintDismissed = true
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .buttonStyle(.borderless)
-                    .foregroundStyle(.secondary)
-                    .accessibilityLabel("Don't show again")
-                    .help("Don't show again")
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
+                HintRow(
+                    text: "Parked projects still keep their node_modules, Pods and build output on disk.",
+                    action: model.devSweeperInstalled ? "Open DevSweeper" : "Get DevSweeper",
+                    perform: model.openDevSweeper,
+                    dismiss: { model.devSweeperHintDismissed = true }
+                )
             }
         }
         .padding(.bottom, 6)
@@ -601,5 +597,33 @@ struct ParkedList: View {
         if !project.simulators.isEmpty { parts.append(project.simulators.map(\.name).joined(separator: ", ")) }
         if !project.envFiles.isEmpty { parts.append(project.envFiles.joined(separator: " ")) }
         return parts.joined(separator: " · ")
+    }
+}
+
+/// A one-line pointer to a companion app, with a button and a way to never see it again.
+struct HintRow: View {
+    let text: String
+    let action: String
+    let perform: () -> Void
+    let dismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(text)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Button(action, action: perform)
+                .buttonStyle(.borderless)
+            Button(action: dismiss) {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Don't show again")
+            .help("Don't show again")
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 }
