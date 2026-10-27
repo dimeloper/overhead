@@ -114,5 +114,8 @@ final class BatteryTests: XCTestCase {
         XCTAssertEqual(ByteFormat.clock(2 * 3600 + 5 * 60), "2:05")
         XCTAssertEqual(ByteFormat.percent(0.004), "<1%")
         XCTAssertEqual(ByteFormat.percent(0.22), "22%")
+        XCTAssertEqual(ByteFormat.uptime(20 * 60), "20 min")
+        XCTAssertEqual(ByteFormat.uptime(22 * 3600), "22 h")
+        XCTAssertEqual(ByteFormat.uptime(3 * 86400), "3 d")
     }
 }

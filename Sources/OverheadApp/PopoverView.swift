@@ -10,13 +10,10 @@ enum Brand {
     static let segments: [Color] = [Color(red: 0.655, green: 0.545, blue: 0.980), Color(red: 0.369, green: 0.918, blue: 0.831)]
 }
 
-private struct ListHeight: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
 struct PopoverView: View {
     @ObservedObject var model: OverheadModel
+    /// Tallest the lists get before they scroll. Snapshots lift it to show everything.
+    var listCap: CGFloat = 520
     @State private var listHeight: CGFloat = 300
 
     /// Rows shown; the rest are summed into "Other".
@@ -47,10 +44,15 @@ struct PopoverView: View {
                         ParkedList(model: model)
                     }
                 }
-                .background(GeometryReader { Color.clear.preference(key: ListHeight.self, value: $0.size.height) })
+                // Preferences do not cross out of a ScrollView on macOS (it is an NSScrollView underneath), so the
+                // content reports its height through state instead.
+                .background(GeometryReader { proxy in
+                    Color.clear
+                        .onAppear { listHeight = proxy.size.height }
+                        .onChange(of: proxy.size.height) { _, height in listHeight = height }
+                })
             }
-            .frame(height: min(listHeight, 520))
-            .onPreferenceChange(ListHeight.self) { listHeight = $0 }
+            .frame(height: min(listHeight, listCap))
             Divider()
             footer
         }
@@ -227,7 +229,7 @@ struct SimulatorList: View {
                             }
                         }
                         .buttonStyle(.borderless)
-                        .foregroundStyle(armed == simulator.udid ? .red : .accentColor)
+                        .foregroundStyle(armed == simulator.udid ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                         .frame(width: 70, alignment: .trailing)
                         .help("Quits the apps in \(simulator.name) and frees its memory. The simulator and its data stay.")
                     }
@@ -241,11 +243,8 @@ struct SimulatorList: View {
 
     private func detail(_ usage: SimulatorUsage) -> String {
         var parts = [usage.simulator.runtime]
-        if let booted = usage.simulator.bootedAt {
-            parts.append("booted \(booted.formatted(.relative(presentation: .named)))")
-        }
+        if let booted = usage.simulator.bootedAt { parts.append("up \(ByteFormat.uptime(Date().timeIntervalSince(booted)))") }
         parts.append("\(usage.processCount) processes")
-        parts.append("\(ByteFormat.percent(usage.cpu)) CPU")
         return parts.joined(separator: " · ")
     }
 }
@@ -270,7 +269,8 @@ struct PortList: View {
 
             ForEach(model.ports.ports, id: \.self) { port in
                 HStack(spacing: 10) {
-                    Text(":\(port.port)").font(.system(.body, design: .monospaced)).frame(width: 64, alignment: .leading)
+                    // Verbatim: Text("…") would format 8081 for the locale, as "8.081" in Greek or German.
+                    Text(verbatim: ":\(port.port)").font(.system(.body, design: .monospaced)).frame(width: 64, alignment: .leading)
                     Text(port.process).lineLimit(1)
                     Text(port.project ?? "outside projects").font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     Spacer()
@@ -283,7 +283,7 @@ struct PortList: View {
                         }
                     }
                     .buttonStyle(.borderless)
-                    .foregroundStyle(armed == port.pid ? .red : .accentColor)
+                    .foregroundStyle(armed == port.pid ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
                     .help("Sends \(port.process) (pid \(port.pid)) a polite quit signal (SIGTERM).")
                 }
                 .padding(.horizontal, 16)
@@ -350,22 +350,25 @@ struct MemoryBar: View {
             .background(Color.white.opacity(0.12))
             .clipShape(RoundedRectangle(cornerRadius: 4))
 
-            HStack(spacing: 12) {
+            // Two columns: five names never fit on one line of a 440 pt popover.
+            LazyVGrid(columns: [GridItem(.flexible(), alignment: .leading), GridItem(.flexible(), alignment: .leading)], alignment: .leading, spacing: 4) {
                 ForEach(Array(projects.enumerated()), id: \.offset) { index, usage in
-                    HStack(spacing: 4) {
-                        segment(index).frame(width: 7, height: 7).clipShape(Circle())
-                        Text("\(usage.project.name) \(ByteFormat.short(usage.footprint))").lineLimit(1)
-                    }
+                    legend(AnyView(segment(index)), usage.project.name, usage.footprint)
                 }
                 if simulators > 0 {
-                    HStack(spacing: 4) {
-                        Brand.simulator.frame(width: 7, height: 7).clipShape(Circle())
-                        Text("Simulators \(ByteFormat.short(simulators))").lineLimit(1)
-                    }
+                    legend(AnyView(Brand.simulator), "Simulators", simulators)
                 }
-                Text("Other \(ByteFormat.short(otherUsed))").foregroundStyle(.secondary)
+                legend(AnyView(Color.gray.opacity(0.55)), "Other", otherUsed)
             }
             .font(.caption)
+        }
+    }
+
+    private func legend(_ swatch: AnyView, _ name: String, _ bytes: UInt64) -> some View {
+        HStack(spacing: 5) {
+            swatch.frame(width: 7, height: 7).clipShape(Circle())
+            Text(name).lineLimit(1).truncationMode(.middle)
+            Text(ByteFormat.short(bytes)).foregroundStyle(.secondary).monospacedDigit().fixedSize()
         }
     }
 
@@ -414,6 +417,7 @@ struct ProjectRow: View {
                 .monospacedDigit()
             Button("Park") { model.preparePark(usage.project) }
                 .buttonStyle(.borderless)
+                .foregroundStyle(.secondary)
                 .disabled(model.isPreparingPark || model.planning != nil)
                 .help("Shows what parking stops before anything happens.")
         }

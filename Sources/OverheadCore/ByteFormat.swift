@@ -14,6 +14,14 @@ public enum ByteFormat {
         return minutes >= 60 ? "\(minutes / 60) h \(minutes % 60) m" : "\(minutes) m"
     }
 
+    /// "20 min", "22 h", "3 d": how long something has been running, short enough for a detail line.
+    public static func uptime(_ interval: TimeInterval) -> String {
+        let minutes = max(Int(interval / 60), 0)
+        if minutes < 60 { return "\(minutes) min" }
+        if minutes < 48 * 60 { return "\(minutes / 60) h" }
+        return "\(minutes / (24 * 60)) d"
+    }
+
     /// "2:40": the menu bar form.
     public static func clock(_ interval: TimeInterval) -> String {
         let minutes = Int((interval / 60).rounded())

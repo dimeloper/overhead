@@ -52,6 +52,7 @@ Requires macOS 14 or later and Xcode 15 or later.
 swift test                  # OverheadCore tests
 ./scripts/build-app.sh      # builds build/Overhead.app
 open build/Overhead.app
+build/Overhead.app/Contents/MacOS/Overhead --snapshot popover.png --full   # renders the popover to a PNG
 ```
 
 ## Privacy
