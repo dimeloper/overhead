@@ -87,6 +87,10 @@ build/Overhead.app/Contents/MacOS/Overhead --snapshot popover.png --full   # ren
 ./scripts/release.sh        # universal, Developer ID signed and notarised DMG (needs your own certificate)
 ```
 
+A release: bump the version in `scripts/Info.plist`, write `docs/release-notes/<version>.md`, commit and push, then
+run `scripts/release.sh` and `scripts/publish-release.sh`. The second tags the commit, uploads the DMG to GitHub
+Releases, checks the upload, and updates the Homebrew cask. `--dry-run` shows what it would do.
+
 ## Privacy
 
 Overhead reads process names, memory figures and working directories on your Mac. It sends nothing anywhere: no
