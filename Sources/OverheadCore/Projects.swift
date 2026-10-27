@@ -37,9 +37,21 @@ public enum ProjectDiscovery {
 
     /// Git checkouts up to two levels below `home` (`~/repo`, `~/folder/repo`), plus agent worktrees kept inside a
     /// repo at `.claude/worktrees/*`.
-    public static func discover(home: URL, fileManager: FileManager = .default) -> [Project] {
+    public static func discover(home: URL, extraFolders: [URL] = [], fileManager: FileManager = .default) -> [Project] {
+        var found = scan(home, skipping: skipped, fileManager)
+        // Folders the user added in Settings get the same two-level scan, or count themselves if they are a checkout.
+        for folder in extraFolders {
+            found += isCheckout(folder, fileManager) ? checkout(folder, fileManager) : scan(folder, skipping: [], fileManager)
+        }
+        // The same checkout can arrive spelled two ways (a symlinked folder, /var and /private/var), so compare
+        // resolved paths.
+        var seen = Set<String>()
+        return found.filter { seen.insert(URL(fileURLWithPath: $0.path).resolvingSymlinksInPath().path).inserted }
+    }
+
+    static func scan(_ root: URL, skipping: Set<String>, _ fileManager: FileManager) -> [Project] {
         var found: [Project] = []
-        for level1 in children(of: home, fileManager) where !skipped.contains(level1.lastPathComponent) {
+        for level1 in children(of: root, fileManager) where !skipping.contains(level1.lastPathComponent) {
             if isCheckout(level1, fileManager) {
                 found += checkout(level1, fileManager)
                 continue

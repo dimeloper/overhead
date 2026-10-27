@@ -141,7 +141,13 @@ struct PopoverView: View {
 
     private var footer: some View {
         HStack {
-            Text("Updates every 3 s").font(.caption).foregroundStyle(.secondary)
+            SettingsLink {
+                Text("Settings…")
+            }
+            .buttonStyle(.borderless)
+            .keyboardShortcut(",")
+            // Bring the window to the front: a menu bar app is never the active app.
+            .simultaneousGesture(TapGesture().onEnded { NSApp.activate(ignoringOtherApps: true) })
             Spacer()
             Button("Quit Overhead") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless)

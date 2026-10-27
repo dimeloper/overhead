@@ -81,6 +81,16 @@ final class ProjectDiscoveryTests: XCTestCase {
 
         XCTAssertEqual(names, ["dotfiles", "app", "app · fix", "app-feature"])
     }
+
+    func testExtraFoldersAreScannedOnceEvenWhenTheyOverlapHome() throws {
+        try makeRepo("Library/Work/client/api")
+        try makeRepo("my-apps/app")
+        let extras = [home.appendingPathComponent("Library/Work"), home.appendingPathComponent("my-apps/app")]
+
+        let projects = ProjectDiscovery.discover(home: home, extraFolders: extras)
+
+        XCTAssertEqual(projects.map(\.name).sorted(), ["api", "app"], "Library is skipped from home but scanned when added; app appears once")
+    }
 }
 
 final class ProcessNameTests: XCTestCase {

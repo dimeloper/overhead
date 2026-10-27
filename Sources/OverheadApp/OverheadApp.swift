@@ -18,5 +18,9 @@ struct OverheadApp: App {
                 .accessibilityLabel(model.menuAccessibilityLabel)
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView(model: model)
+        }
     }
 }

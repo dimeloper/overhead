@@ -4,10 +4,14 @@ import SwiftUI
 
 /// What the menu bar shows: small labels over values, like iStat Menus.
 struct MenuBarReadout: View {
-    var cpu: String
-    var memory: String
-    /// Only while running on battery.
-    var battery: String?
+    struct Column: Equatable {
+        var label: String
+        var value: String
+        /// The widest value this column can show, so the readout does not jitter as numbers change.
+        var widest: String
+    }
+
+    var columns: [Column]
     var holdingAwake: Bool
 
     var body: some View {
@@ -15,26 +19,25 @@ struct MenuBarReadout: View {
             if holdingAwake {
                 Image(systemName: "cup.and.saucer.fill").font(.system(size: 11, weight: .semibold))
             }
-            column("CPU", cpu, sample: "100%")
-            column("MEM", memory, sample: "63.9G")
-            if let battery { column("BAT", battery, sample: "10:00") }
+            ForEach(columns, id: \.label) { column in
+                VStack(alignment: .leading, spacing: -1) {
+                    Text(column.label).font(.system(size: 7.5, weight: .bold)).kerning(0.4).opacity(0.75)
+                    ZStack(alignment: .leading) {
+                        Text(column.widest).hidden()
+                        Text(column.value)
+                    }
+                    .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                }
+                .fixedSize()
+            }
+            // With every readout turned off, a small gauge keeps the menu bar item clickable.
+            if columns.isEmpty && !holdingAwake {
+                Image(systemName: "gauge.with.dots.needle.33percent").font(.system(size: 13, weight: .medium))
+            }
         }
         .padding(.horizontal, 1)
         .frame(height: 22)
         .foregroundStyle(.black)
-    }
-
-    /// Each column is as wide as its widest possible value, so the readout does not jitter as numbers change.
-    private func column(_ label: String, _ value: String, sample: String) -> some View {
-        VStack(alignment: .leading, spacing: -1) {
-            Text(label).font(.system(size: 7.5, weight: .bold)).kerning(0.4).opacity(0.75)
-            ZStack(alignment: .leading) {
-                Text(sample).hidden()
-                Text(value)
-            }
-            .font(.system(size: 11, weight: .semibold).monospacedDigit())
-        }
-        .fixedSize()
     }
 
     /// A template image: macOS tints it for light and dark menu bars and for the highlighted state.

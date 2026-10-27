@@ -21,6 +21,26 @@ final class OverheadModel: ObservableObject {
     @Published var devSweeperHintDismissed: Bool {
         didSet { UserDefaults.standard.set(devSweeperHintDismissed, forKey: Self.devSweeperHintKey) }
     }
+
+    // MARK: Settings, each saved as it changes
+
+    @Published var showCPU: Bool { didSet { defaults.set(showCPU, forKey: "showCPU") } }
+    @Published var showMemory: Bool { didSet { defaults.set(showMemory, forKey: "showMemory") } }
+    /// Battery time is only ever shown while unplugged; this turns even that off.
+    @Published var showBattery: Bool { didSet { defaults.set(showBattery, forKey: "showBattery") } }
+    @Published var showAwakeCup: Bool { didSet { defaults.set(showAwakeCup, forKey: "showAwakeCup") } }
+    /// Percent of physical memory by default; gigabytes in use otherwise.
+    @Published var memoryAsPercent: Bool { didSet { defaults.set(memoryAsPercent, forKey: "memoryAsPercent") } }
+    /// Scanned in addition to the home folder, two levels deep.
+    @Published var extraProjectFolders: [String] {
+        didSet {
+            defaults.set(extraProjectFolders, forKey: "extraProjectFolders")
+            projectsScannedAt = .distantPast
+            refresh()
+        }
+    }
+
+    private let defaults = UserDefaults.standard
     @Published private(set) var lastError: String?
     @Published var keepAwake: KeepAwakeMode {
         didSet {
@@ -56,6 +76,14 @@ final class OverheadModel: ObservableObject {
     init() {
         keepAwake = UserDefaults.standard.string(forKey: Self.keepAwakeKey).flatMap(KeepAwakeMode.init) ?? .automatic
         devSweeperHintDismissed = UserDefaults.standard.bool(forKey: Self.devSweeperHintKey)
+        let stored = UserDefaults.standard
+        func flag(_ key: String, _ fallback: Bool) -> Bool { stored.object(forKey: key) as? Bool ?? fallback }
+        showCPU = flag("showCPU", true)
+        showMemory = flag("showMemory", true)
+        showBattery = flag("showBattery", true)
+        showAwakeCup = flag("showAwakeCup", true)
+        memoryAsPercent = flag("memoryAsPercent", true)
+        extraProjectFolders = stored.stringArray(forKey: "extraProjectFolders") ?? []
         parked = store.load()
         tick()
         refresh()
@@ -68,19 +96,24 @@ final class OverheadModel: ObservableObject {
     }
 
     var menuReadout: MenuBarReadout {
-        MenuBarReadout(
-            cpu: cpuLoad.map(ByteFormat.percent) ?? "–",
-            memory: memory.map { ByteFormat.menu($0.used) } ?? "–",
-            battery: menuBattery,
-            holdingAwake: isHoldingAwake
-        )
+        var columns: [MenuBarReadout.Column] = []
+        if showCPU { columns.append(.init(label: "CPU", value: cpuLoad.map(ByteFormat.percent) ?? "–", widest: "100%")) }
+        if showMemory { columns.append(.init(label: "MEM", value: menuMemory, widest: memoryAsPercent ? "100%" : "63.9G")) }
+        if showBattery, let battery = menuBattery { columns.append(.init(label: "BAT", value: battery, widest: "10:00")) }
+        return MenuBarReadout(columns: columns, holdingAwake: showAwakeCup && isHoldingAwake)
+    }
+
+    private var menuMemory: String {
+        guard let memory else { return "–" }
+        guard memoryAsPercent, memory.total > 0 else { return ByteFormat.menu(memory.used) }
+        return ByteFormat.percent(Double(memory.used) / Double(memory.total))
     }
 
     /// What VoiceOver reads for the menu bar image.
     var menuAccessibilityLabel: String {
-        var parts = ["Overhead", "CPU \(menuReadout.cpu)", "memory \(memory.map { ByteFormat.short($0.used) } ?? "unknown")"]
-        if let battery = menuBattery { parts.append("battery \(battery)") }
-        if isHoldingAwake { parts.append("keeping the Mac awake") }
+        let readout = menuReadout
+        var parts = ["Overhead"] + readout.columns.map { "\($0.label) \($0.value)" }
+        if readout.holdingAwake { parts.append("keeping the Mac awake") }
         return parts.joined(separator: ", ")
     }
 
@@ -111,8 +144,9 @@ final class OverheadModel: ObservableObject {
         let scanPorts = refreshCount % portScanEvery == 0
         refreshCount += 1
         let known = projects
+        let extras = extraProjectFolders.map { URL(fileURLWithPath: $0) }
         Task.detached(priority: .utility) {
-            let found = rescan ? ProjectDiscovery.discover(home: FileManager.default.homeDirectoryForCurrentUser) : known
+            let found = rescan ? ProjectDiscovery.discover(home: FileManager.default.homeDirectoryForCurrentUser, extraFolders: extras) : known
             let samples = ProcessSampler.sampleAll()
             let listeners = scanPorts ? PortScanner.listeners(pids: samples.map(\.pid)) : nil
             let battery = BatteryReading.read()
