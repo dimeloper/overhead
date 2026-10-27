@@ -5,7 +5,7 @@ struct OverheadApp: App {
     @StateObject private var model: OverheadModel
 
     init() {
-        let model = OverheadModel()
+        let model = OverheadModel(demo: CommandLine.arguments.contains("--demo"))
         _model = StateObject(wrappedValue: model)
         Snapshot.runIfRequested(model: model)
     }

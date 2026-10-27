@@ -6,6 +6,17 @@ Overhead is a free, open-source menu bar app for developers. Activity Monitor li
 adds them up by the git checkout they run from, so `node`, `xcodebuild` and a Python server show up as one line:
 "my-app, 6.1 GB".
 
+<p align="center">
+  <img src="docs/images/menubar.png" width="310" alt="Menu bar readout: a cup while the Mac is kept awake, then CPU 34%, MEM 76% and BAT 4:25, on a light and a dark menu bar">
+</p>
+
+<p align="center">
+  <img src="docs/images/popover.png" width="440" alt="The Overhead popover: 27.4 GB in use, a memory bar split by project, keep-awake set to Auto, projects with their memory and CPU, a parked project, a booted iPhone simulator and the dev servers listening on ports">
+</p>
+
+The projects in these screenshots are made up. `./scripts/screenshots.sh` renders them with `--demo`, which never
+reads your own processes.
+
 ## Status: 0.7, early
 
 Working now:
@@ -15,6 +26,8 @@ Working now:
   The popover adds memory pressure and swap.
 - Settings (⌘, from the popover): choose which readouts the menu bar shows, memory as a percentage or in gigabytes,
   open at login, and extra project folders beyond the two levels below your home folder.
+
+  <img src="docs/images/settings.png" width="440" alt="Settings: menu bar toggles for CPU, memory, battery time and the keep-awake cup, a live preview, open at login, project folders and the version">
 - Memory and CPU per project. A process counts toward the deepest git checkout its working directory is in, so a
   worktree gets its own row. Checkouts are found up to two folders below your home folder, plus agent worktrees in
   `.claude/worktrees/`.
@@ -43,6 +56,8 @@ Working now:
   folder in Terminal, and gives you each command to copy. Servers are not restarted for you, because they would miss
   the environment your shell gives them.
 
+  <img src="docs/images/park.png" width="440" alt="Park panel for trail-app: stop the node server on port 8081 started with npx expo start, shut down the iPhone 17 Pro simulator, and a warning about 3 uncommitted changes, with Cancel and Park Project buttons">
+
 CPU per project is also the best guide to which project drains the battery: macOS does not report power per
 process. Memory per project and per simulator is the sum of each process's footprint, the figure Activity Monitor
 shows; it includes compressed memory, so the parts can add up to more than "in use".
@@ -56,6 +71,7 @@ swift test                  # OverheadCore tests
 ./scripts/build-app.sh      # builds build/Overhead.app
 open build/Overhead.app
 build/Overhead.app/Contents/MacOS/Overhead --snapshot popover.png --full   # renders the popover to a PNG
+./scripts/screenshots.sh    # regenerates the README screenshots from made-up projects
 ```
 
 ## Privacy

@@ -22,6 +22,13 @@ public struct SimulatorUsage: Sendable, Equatable {
     public var footprint: UInt64
     public var cpu: Double
     public var processCount: Int
+
+    public init(simulator: BootedSimulator, footprint: UInt64, cpu: Double, processCount: Int) {
+        self.simulator = simulator
+        self.footprint = footprint
+        self.cpu = cpu
+        self.processCount = processCount
+    }
 }
 
 public enum SimulatorScanner {

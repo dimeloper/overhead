@@ -12,6 +12,15 @@ public struct ServerToStop: Sendable, Equatable {
     /// What to type to start it again: the group leader's command line.
     public var command: String
     public var workingDirectory: String
+
+    public init(pid: pid_t, ports: [UInt16], process: String, processGroup: pid_t?, command: String, workingDirectory: String) {
+        self.pid = pid
+        self.ports = ports
+        self.process = process
+        self.processGroup = processGroup
+        self.command = command
+        self.workingDirectory = workingDirectory
+    }
 }
 
 /// What parking a project would do, shown before anything happens.
@@ -23,6 +32,14 @@ public struct ParkPlan: Sendable, Equatable {
     public var agents: [String]
     public var uncommittedChanges: Int?
 
+    public init(project: Project, servers: [ServerToStop], simulators: [BootedSimulator], agents: [String], uncommittedChanges: Int?) {
+        self.project = project
+        self.servers = servers
+        self.simulators = simulators
+        self.agents = agents
+        self.uncommittedChanges = uncommittedChanges
+    }
+
     public var isEmpty: Bool { servers.isEmpty && simulators.isEmpty }
 }
 
@@ -32,12 +49,24 @@ public struct ParkedProject: Codable, Sendable, Equatable {
         public var command: String
         public var workingDirectory: String
         public var ports: [UInt16]
+
+        public init(command: String, workingDirectory: String, ports: [UInt16]) {
+            self.command = command
+            self.workingDirectory = workingDirectory
+            self.ports = ports
+        }
     }
 
     public struct Simulator: Codable, Sendable, Equatable {
         public var udid: String
         public var name: String
         public var runtime: String
+
+        public init(udid: String, name: String, runtime: String) {
+            self.udid = udid
+            self.name = name
+            self.runtime = runtime
+        }
     }
 
     public var name: String
@@ -50,6 +79,17 @@ public struct ParkedProject: Codable, Sendable, Equatable {
     public var envFiles: [String]
     /// Pinned tool versions: `.nvmrc`, `.python-version` and the like, file name to first line.
     public var toolVersions: [String: String]
+
+    public init(name: String, path: String, parkedAt: Date, branch: String?, commands: [Command], simulators: [Simulator], envFiles: [String], toolVersions: [String: String]) {
+        self.name = name
+        self.path = path
+        self.parkedAt = parkedAt
+        self.branch = branch
+        self.commands = commands
+        self.simulators = simulators
+        self.envFiles = envFiles
+        self.toolVersions = toolVersions
+    }
 }
 
 public enum Parker {

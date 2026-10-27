@@ -75,10 +75,16 @@ final class OverheadModel: ObservableObject {
     /// Reading every socket of every process costs more than sampling, and ports change rarely.
     private let portScanEvery = 3
 
-    init() {
-        keepAwake = UserDefaults.standard.string(forKey: Self.keepAwakeKey).flatMap(KeepAwakeMode.init) ?? .automatic
-        devSweeperHintDismissed = UserDefaults.standard.bool(forKey: Self.devSweeperHintKey)
-        let stored = UserDefaults.standard
+    /// Made-up data for screenshots: no sampling, no timers, nothing read from or written to disk.
+    let isDemo: Bool
+
+    init(demo: Bool = false) {
+        isDemo = demo
+        // The demo never reads this Mac's settings, so its screenshots look the same everywhere.
+        let stored = demo ? UserDefaults(suiteName: "overhead-demo")! : UserDefaults.standard
+        if demo { stored.removePersistentDomain(forName: "overhead-demo") }
+        keepAwake = stored.string(forKey: Self.keepAwakeKey).flatMap(KeepAwakeMode.init) ?? .automatic
+        devSweeperHintDismissed = stored.bool(forKey: Self.devSweeperHintKey)
         func flag(_ key: String, _ fallback: Bool) -> Bool { stored.object(forKey: key) as? Bool ?? fallback }
         showCPU = flag("showCPU", true)
         showMemory = flag("showMemory", true)
@@ -86,6 +92,10 @@ final class OverheadModel: ObservableObject {
         showAwakeCup = flag("showAwakeCup", true)
         memoryAsPercent = flag("memoryAsPercent", true)
         extraProjectFolders = stored.stringArray(forKey: "extraProjectFolders") ?? []
+        if demo {
+            loadDemo()
+            return
+        }
         parked = store.load()
         tick()
         refresh()
@@ -174,6 +184,7 @@ final class OverheadModel: ObservableObject {
 
     /// Gathers a fresh plan for `project` without stopping anything; `confirmPark` acts on it.
     func preparePark(_ project: Project) {
+        if isDemo { planning = Demo.plan(for: project); return }
         isPreparingPark = true
         let projects = self.projects
         Task.detached(priority: .userInitiated) {
@@ -293,6 +304,18 @@ final class OverheadModel: ObservableObject {
 
         let busy = policy.busyReason(samples: samples, rates: rates, projects: attribution.projects, cores: ProcessInfo.processInfo.activeProcessorCount)
         updateAssertion(busy: busy, now: now)
+    }
+
+    private func loadDemo() {
+        memory = Demo.memory
+        cpuLoad = Demo.cpuLoad
+        battery = Demo.battery
+        runway = Demo.runway
+        attribution = Demo.attribution
+        ports = Demo.ports
+        simulators = Demo.simulators
+        parked = Demo.parked
+        awakeReason = Demo.awakeReason
     }
 
     private func updateAssertion(busy: String?, now: Date) {

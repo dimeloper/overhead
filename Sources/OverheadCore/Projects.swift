@@ -23,6 +23,15 @@ public struct ProjectUsage: Sendable, Equatable {
     public var agentSessions: Int = 0
     /// Processes those sessions started.
     public var agentTools: Int = 0
+
+    public init(project: Project, footprint: UInt64, cpu: Double, processes: [String], agentSessions: Int = 0, agentTools: Int = 0) {
+        self.project = project
+        self.footprint = footprint
+        self.cpu = cpu
+        self.processes = processes
+        self.agentSessions = agentSessions
+        self.agentTools = agentTools
+    }
 }
 
 public struct Attribution: Sendable, Equatable {
