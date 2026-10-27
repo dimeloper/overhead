@@ -100,7 +100,7 @@ account, no analytics, no network access.
 
 - [DevSweeper](https://devsweeper.com): finds disk space you can safely reclaim from caches, build output,
   simulators and old worktrees.
-- AgentNod: answer your coding agents' permission prompts from a HUD, a notification or your phone.
+- [AgentNod](https://agentnod.app): answer your coding agents' permission prompts from a HUD, a notification or your phone.
 
 ## License
 
