@@ -21,7 +21,13 @@ struct PopoverView: View {
                 .padding(16)
                 .background(.white.opacity(0.025))
             Divider()
+            KeepAwakeRow(model: model)
+            Divider()
             projectList
+            if !model.ports.ports.isEmpty {
+                Divider()
+                PortList(model: model)
+            }
             Divider()
             footer
         }
@@ -115,6 +121,85 @@ struct PopoverView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+}
+
+struct KeepAwakeRow: View {
+    @ObservedObject var model: OverheadModel
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: model.isHoldingAwake ? "cup.and.saucer.fill" : "moon.zzz")
+                .foregroundStyle(model.isHoldingAwake ? AnyShapeStyle(Brand.gradient) : AnyShapeStyle(.secondary))
+                .frame(width: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(model.isHoldingAwake ? "Keeping your Mac awake" : "Your Mac can sleep").font(.body.weight(.semibold))
+                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer()
+            Picker("Keep awake", selection: $model.keepAwake) {
+                Text("Off").tag(KeepAwakeMode.off)
+                Text("Auto").tag(KeepAwakeMode.automatic)
+                Text("On").tag(KeepAwakeMode.on)
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 130)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+    }
+
+    private var detail: String {
+        switch model.keepAwake {
+        case .off: "Keep awake is off"
+        case .on: "Until you turn it off · the display can still sleep"
+        case .automatic: model.awakeReason.map { "\($0) · lets go 2 min after it stops" } ?? "Holds while a build or agent is working"
+        }
+    }
+}
+
+struct PortList: View {
+    @ObservedObject var model: OverheadModel
+    /// Stop asks twice: the first click arms the button, the second sends SIGTERM.
+    @State private var armed: pid_t?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("PORTS")
+                Spacer()
+                if model.ports.otherCount > 0 { Text("\(model.ports.otherCount) more from other apps") }
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
+            .padding(.bottom, 4)
+
+            ForEach(model.ports.ports, id: \.self) { port in
+                HStack(spacing: 10) {
+                    Text(":\(port.port)").font(.system(.body, design: .monospaced)).frame(width: 64, alignment: .leading)
+                    Text(port.process).lineLimit(1)
+                    Text(port.project ?? "outside projects").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer()
+                    Button(armed == port.pid ? "Confirm" : "Stop") {
+                        if armed == port.pid {
+                            model.stop(port)
+                            armed = nil
+                        } else {
+                            armed = port.pid
+                        }
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(armed == port.pid ? .red : .accentColor)
+                    .help("Sends \(port.process) (pid \(port.pid)) a polite quit signal (SIGTERM).")
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+            }
+        }
+        .padding(.bottom, 6)
     }
 }
 

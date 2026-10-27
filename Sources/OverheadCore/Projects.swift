@@ -99,6 +99,11 @@ public enum ProjectAttribution {
         return Attribution(projects: usages.sorted { $0.footprint > $1.footprint }, unattributed: unattributed)
     }
 
+    /// The deepest project that contains `path`.
+    public static func project(containing path: String, in projects: [Project]) -> Project? {
+        projects.filter { contains($0.path, path) }.max { $0.path.count < $1.path.count }
+    }
+
     /// `/a/app` contains `/a/app` and `/a/app/src`, never `/a/app-2`.
     static func contains(_ root: String, _ path: String) -> Bool {
         path == root || path.hasPrefix(root.hasSuffix("/") ? root : root + "/")

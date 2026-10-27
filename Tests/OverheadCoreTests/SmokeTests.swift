@@ -30,8 +30,42 @@ final class SmokeTests: XCTestCase {
             print("no battery")
         }
 
+        let ports = PortScanner.report(PortScanner.listeners(pids: samples.map(\.pid)), samples: samples, projects: projects)
+        for port in ports.ports { print("  :\(port.port) \(port.process) (\(port.project ?? "outside projects"))") }
+        print("listeners from other apps \(ports.otherCount)")
+        let busy = KeepAwakePolicy().busyReason(samples: samples, rates: rates, projects: result.projects, cores: ProcessInfo.processInfo.activeProcessorCount)
+        print("automatic keep-awake would \(busy.map { "hold: \($0)" } ?? "let the Mac sleep")")
+
         XCTAssertGreaterThan(memory.used, 0)
         XCTAssertLessThanOrEqual(memory.used, memory.total)
         XCTAssertLessThanOrEqual(rates.values.reduce(0, +), 1.05, "sampled processes cannot use more than the whole machine")
+    }
+}
+
+/// Takes and releases a real sleep assertion and checks `pmset` sees both. Skipped unless `OVERHEAD_SMOKE=1`.
+final class SleepAssertionSmokeTests: XCTestCase {
+    func testPmsetSeesTheAssertionWhileHeld() throws {
+        try XCTSkipUnless(ProcessInfo.processInfo.environment["OVERHEAD_SMOKE"] == "1", "set OVERHEAD_SMOKE=1")
+        let assertion = SleepAssertion()
+
+        assertion.hold("smoke test")
+        assertion.hold("smoke test renamed")
+        let held = try pmsetAssertions()
+        assertion.release()
+        let released = try pmsetAssertions()
+
+        XCTAssertTrue(held.contains("Overhead: smoke test renamed"), held)
+        XCTAssertFalse(released.contains("Overhead: smoke test"))
+    }
+
+    private func pmsetAssertions() throws -> String {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/pmset")
+        process.arguments = ["-g", "assertions"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        return String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
     }
 }

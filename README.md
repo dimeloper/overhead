@@ -6,7 +6,7 @@ Overhead is a free, open-source menu bar app for developers. Activity Monitor li
 adds them up by the git checkout they run from, so `node`, `xcodebuild` and a Python server show up as one line:
 "my-app, 6.1 GB".
 
-## Status: 0.2, early
+## Status: 0.3, early
 
 Working now:
 
@@ -18,13 +18,20 @@ Working now:
 - Battery time at this pace: remaining watt-hours divided by your average draw over the last 10 minutes. It starts
   over when you unplug, so it follows how you work now rather than the last hour.
 
+- Keep awake: Off, On, or Auto. Auto holds while a build tool or coding agent is actually working (above a quarter
+  of one core), or while a project is busy, and lets go two minutes after the work stops. An idle agent session or
+  a dev server waiting for requests does not keep your Mac up. The display can still sleep, and closing the lid on
+  battery still sleeps the Mac. A cup appears in the menu bar while it holds; `pmset -g assertions` lists it as
+  "Overhead: <reason>".
+- Ports: dev servers listening in your projects, plus databases and Docker running outside them, each with a Stop
+  button that sends a polite quit signal (SIGTERM) after you confirm. Other apps' listeners (AirPlay, Spotify) are
+  only counted.
+
 CPU per project is also the best guide to which project drains the battery: macOS does not report power per
 process.
 
 Planned:
 
-- Keep the Mac awake while a build, deploy or coding agent runs, and let it sleep when they finish.
-- Ports and dev servers per project, with a Stop button.
 - Booted simulators and the memory they hold.
 - Park a project: stop its servers and simulators in one click, and start them again later. Parking never deletes
   files.

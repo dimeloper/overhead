@@ -8,7 +8,10 @@ struct OverheadApp: App {
         MenuBarExtra {
             PopoverView(model: model)
         } label: {
-            Text(model.menuTitle).monospacedDigit()
+            HStack(spacing: 4) {
+                if model.isHoldingAwake { Image(systemName: "cup.and.saucer.fill") }
+                Text(model.menuTitle).monospacedDigit()
+            }
         }
         .menuBarExtraStyle(.window)
     }
