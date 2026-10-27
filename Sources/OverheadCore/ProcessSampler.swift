@@ -10,15 +10,17 @@ public struct ProcessSample: Sendable, Equatable {
     /// User + system CPU time since the process started, in nanoseconds.
     public var cpuTime: UInt64
     public var parentPid: pid_t
+    public var processGroup: pid_t
     public var startedAt: Date?
 
-    public init(pid: pid_t, name: String, workingDirectory: String?, footprint: UInt64, cpuTime: UInt64 = 0, parentPid: pid_t = 0, startedAt: Date? = nil) {
+    public init(pid: pid_t, name: String, workingDirectory: String?, footprint: UInt64, cpuTime: UInt64 = 0, parentPid: pid_t = 0, processGroup: pid_t = 0, startedAt: Date? = nil) {
         self.pid = pid
         self.name = name
         self.workingDirectory = workingDirectory
         self.footprint = footprint
         self.cpuTime = cpuTime
         self.parentPid = parentPid
+        self.processGroup = processGroup
         self.startedAt = startedAt
     }
 }
@@ -50,6 +52,7 @@ public enum ProcessSampler {
             footprint: usage.ri_phys_footprint,
             cpuTime: nanoseconds(usage.ri_user_time + usage.ri_system_time),
             parentPid: hasBsd ? pid_t(bsd.pbi_ppid) : 0,
+            processGroup: hasBsd ? pid_t(bsd.pbi_pgid) : 0,
             startedAt: hasBsd ? Date(timeIntervalSince1970: TimeInterval(bsd.pbi_start_tvsec)) : nil
         )
     }
@@ -97,6 +100,12 @@ public enum ProcessSampler {
         let parts = executablePath.split(separator: "/")
         guard parts.count >= 3, parts[parts.count - 2] == "versions" else { return short }
         return String(parts[parts.count - 3])
+    }
+
+    /// Full path of the executable, e.g. a simulator app inside its device's data folder.
+    public static func executablePath(_ pid: pid_t) -> String? {
+        var path = [CChar](repeating: 0, count: Int(MAXPATHLEN))
+        return proc_pidpath(pid, &path, UInt32(path.count)) > 0 ? String(cString: path) : nil
     }
 
     static func isVersion(_ name: String) -> Bool {

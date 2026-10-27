@@ -5,13 +5,19 @@ enum Brand {
     static let orange = Color(red: 0.984, green: 0.573, blue: 0.235)
     static let pink = Color(red: 0.925, green: 0.282, blue: 0.600)
     static let gradient = LinearGradient(colors: [orange, pink], startPoint: .leading, endPoint: .trailing)
-    /// Segment colours for the projects after the first, which takes the brand gradient.
     static let simulator = Color(red: 0.851, green: 0.275, blue: 0.937)
+    /// Segment colours for the projects after the first, which takes the brand gradient.
     static let segments: [Color] = [Color(red: 0.655, green: 0.545, blue: 0.980), Color(red: 0.369, green: 0.918, blue: 0.831)]
+}
+
+private struct ListHeight: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
 }
 
 struct PopoverView: View {
     @ObservedObject var model: OverheadModel
+    @State private var listHeight: CGFloat = 300
 
     /// Rows shown; the rest are summed into "Other".
     private let visibleProjects = 8
@@ -24,19 +30,31 @@ struct PopoverView: View {
             Divider()
             KeepAwakeRow(model: model)
             Divider()
-            projectList
-            if !model.simulators.isEmpty {
-                Divider()
-                SimulatorList(model: model)
+            // The lists can outgrow the screen on a busy Mac; the header and footer stay put.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    projectList
+                    if !model.simulators.isEmpty {
+                        Divider()
+                        SimulatorList(model: model)
+                    }
+                    if !model.ports.ports.isEmpty {
+                        Divider()
+                        PortList(model: model)
+                    }
+                    if !model.parked.isEmpty {
+                        Divider()
+                        ParkedList(model: model)
+                    }
+                }
+                .background(GeometryReader { Color.clear.preference(key: ListHeight.self, value: $0.size.height) })
             }
-            if !model.ports.ports.isEmpty {
-                Divider()
-                PortList(model: model)
-            }
+            .frame(height: min(listHeight, 520))
+            .onPreferenceChange(ListHeight.self) { listHeight = $0 }
             Divider()
             footer
         }
-        .frame(width: 420)
+        .frame(width: 440)
     }
 
     private var header: some View {
@@ -101,7 +119,10 @@ struct PopoverView: View {
                     .padding(16)
             } else {
                 ForEach(model.attribution.projects.prefix(visibleProjects), id: \.project.path) { usage in
-                    ProjectRow(usage: usage)
+                    ProjectRow(model: model, usage: usage)
+                    if let plan = model.planning, plan.project == usage.project {
+                        ParkPlanPanel(model: model, plan: plan)
+                    }
                 }
                 let rest = model.attribution.projects.dropFirst(visibleProjects).reduce(UInt64(0)) { $0 + $1.footprint }
                 if rest > 0 {
@@ -375,6 +396,7 @@ struct MemoryBar: View {
 }
 
 struct ProjectRow: View {
+    @ObservedObject var model: OverheadModel
     let usage: ProjectUsage
 
     var body: some View {
@@ -390,9 +412,145 @@ struct ProjectRow: View {
             Text(ByteFormat.short(usage.footprint))
                 .font(.body.weight(.semibold))
                 .monospacedDigit()
+            Button("Park") { model.preparePark(usage.project) }
+                .buttonStyle(.borderless)
+                .disabled(model.isPreparingPark || model.planning != nil)
+                .help("Shows what parking stops before anything happens.")
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
         .help("\(usage.project.path)\nCPU is this project's share of the whole Mac, and the best guide to its battery use: macOS does not report power per process.")
+    }
+}
+
+/// What Park will do for one project, with the only button that acts on it.
+struct ParkPlanPanel: View {
+    @ObservedObject var model: OverheadModel
+    let plan: ParkPlan
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Park \(plan.project.name)?").font(.body.weight(.semibold))
+            if plan.isEmpty {
+                Text("Nothing to stop: no dev servers listening and no simulator running this app. Parking keeps the setup sheet.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(plan.servers, id: \.pid) { server in
+                line("stop.circle", "Stop \(server.ports.map { ":\($0)" }.joined(separator: " ")) \(server.process)", server.command)
+            }
+            ForEach(plan.simulators, id: \.udid) { simulator in
+                line("iphone", "Shut down \(simulator.name)", simulator.runtime)
+            }
+            if !plan.agents.isEmpty {
+                line("person.wave.2", "Leaves running: \(plan.agents.count) agent session\(plan.agents.count == 1 ? "" : "s")", "Park never stops coding agents")
+            }
+            if let changes = plan.uncommittedChanges, changes > 0 {
+                line("exclamationmark.triangle", "\(changes) uncommitted change\(changes == 1 ? "" : "s")", "They stay exactly as they are; parking never touches files")
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { model.cancelPark() }
+                Button("Park Project") { model.confirmPark() }
+                    .keyboardShortcut(.defaultAction)
+            }
+            .padding(.top, 4)
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 12)
+        .padding(.bottom, 6)
+    }
+
+    private func line(_ icon: String, _ title: String, _ detail: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: icon).foregroundStyle(.secondary).frame(width: 16)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).lineLimit(1)
+                Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+        }
+    }
+}
+
+struct ParkedList: View {
+    @ObservedObject var model: OverheadModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("PARKED")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 16)
+                .padding(.top, 10)
+                .padding(.bottom, 4)
+
+            ForEach(model.parked, id: \.path) { project in
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(project.name).font(.body.weight(.semibold)).lineLimit(1)
+                            Text(summary(project)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                        Spacer()
+                        Button("Resume") { model.resume(project) }
+                            .buttonStyle(.borderless)
+                            .help("Boots its simulators and opens the folder in Terminal. Paste the commands below to start the servers.")
+                        Button("Forget") { model.forget(project) }
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(project.commands, id: \.command) { command in
+                        HStack(spacing: 6) {
+                            Text(command.command)
+                                .font(.system(.caption, design: .monospaced))
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                            Spacer()
+                            Button {
+                                model.copy("cd \(Parker.quoted(command.workingDirectory)) && \(command.command)")
+                            } label: {
+                                Image(systemName: "doc.on.doc")
+                            }
+                            .buttonStyle(.borderless)
+                            .help("Copy, including the cd into its folder")
+                            .accessibilityLabel("Copy command")
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 6)
+            }
+
+            if !model.devSweeperHintDismissed {
+                HStack(spacing: 8) {
+                    Text("Parked projects still keep their node_modules, Pods and build output on disk.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button(model.devSweeperInstalled ? "Open DevSweeper" : "Get DevSweeper") { model.openDevSweeper() }
+                        .buttonStyle(.borderless)
+                    Button {
+                        model.devSweeperHintDismissed = true
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.borderless)
+                    .foregroundStyle(.secondary)
+                    .accessibilityLabel("Don't show again")
+                    .help("Don't show again")
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+            }
+        }
+        .padding(.bottom, 6)
+    }
+
+    private func summary(_ project: ParkedProject) -> String {
+        var parts = ["parked \(project.parkedAt.formatted(.relative(presentation: .named)))"]
+        if let branch = project.branch { parts.append(branch) }
+        if !project.simulators.isEmpty { parts.append(project.simulators.map(\.name).joined(separator: ", ")) }
+        if !project.envFiles.isEmpty { parts.append(project.envFiles.joined(separator: " ")) }
+        return parts.joined(separator: " · ")
     }
 }

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import OverheadCore
 
@@ -13,6 +14,13 @@ final class OverheadModel: ObservableObject {
     /// UDIDs being shut down, so the row can show it until the simulator is gone.
     @Published private(set) var shuttingDown: Set<String> = []
     @Published private(set) var awakeReason: String?
+    @Published private(set) var parked: [ParkedProject] = []
+    /// The plan shown for confirmation after Park is clicked, before anything stops.
+    @Published private(set) var planning: ParkPlan?
+    @Published private(set) var isPreparingPark = false
+    @Published var devSweeperHintDismissed: Bool {
+        didSet { UserDefaults.standard.set(devSweeperHintDismissed, forKey: Self.devSweeperHintKey) }
+    }
     @Published private(set) var lastError: String?
     @Published var keepAwake: KeepAwakeMode {
         didSet {
@@ -22,6 +30,9 @@ final class OverheadModel: ObservableObject {
     }
 
     private static let keepAwakeKey = "keepAwakeMode"
+    private static let devSweeperHintKey = "devSweeperHintDismissed"
+    private static let devSweeperBundleID = "com.devsweeper.DevSweeper"
+    private let store = ParkedStore()
 
     private var projects: [Project] = []
     private var projectsScannedAt = Date.distantPast
@@ -41,6 +52,8 @@ final class OverheadModel: ObservableObject {
 
     init() {
         keepAwake = UserDefaults.standard.string(forKey: Self.keepAwakeKey).flatMap(KeepAwakeMode.init) ?? .automatic
+        devSweeperHintDismissed = UserDefaults.standard.bool(forKey: Self.devSweeperHintKey)
+        parked = store.load()
         refresh()
         timer = Timer.scheduledTimer(withTimeInterval: sampleInterval, repeats: true) { [weak self] _ in
             Task { @MainActor in self?.refresh() }
@@ -83,6 +96,84 @@ final class OverheadModel: ObservableObject {
                 if case .failure(let error) = result { self.lastError = "Could not shut down \(simulator.name): \(error)" }
                 self.refresh()
             }
+        }
+    }
+
+    // MARK: Park
+
+    /// Gathers a fresh plan for `project` without stopping anything; `confirmPark` acts on it.
+    func preparePark(_ project: Project) {
+        isPreparingPark = true
+        let projects = self.projects
+        Task.detached(priority: .userInitiated) {
+            let samples = ProcessSampler.sampleAll()
+            let ports = PortScanner.report(PortScanner.listeners(pids: samples.map(\.pid)), samples: samples, projects: projects)
+            let simulators = SimulatorScanner.booted(in: samples)
+            var apps: [String: Set<String>] = [:]
+            for simulator in simulators { apps[simulator.udid] = BundleIdentifiers.runningApps(in: simulator, samples: samples) }
+            var plan = Parker.plan(
+                for: project, projects: projects, samples: samples, ports: ports, simulators: simulators,
+                appsBySimulator: apps, bundleIDs: BundleIdentifiers.declared(in: project.path)
+            )
+            plan.uncommittedChanges = Parker.uncommittedChanges(at: project.path)
+            let ready = plan
+            await MainActor.run {
+                self.planning = ready
+                self.isPreparingPark = false
+            }
+        }
+    }
+
+    func cancelPark() {
+        planning = nil
+    }
+
+    func confirmPark() {
+        guard let plan = planning else { return }
+        planning = nil
+        Task.detached(priority: .userInitiated) {
+            let sheet = Parker.park(plan)
+            await MainActor.run {
+                self.parked.removeAll { $0.path == sheet.path }
+                self.parked.insert(sheet, at: 0)
+                self.saveParked()
+                self.refresh()
+            }
+        }
+    }
+
+    func resume(_ project: ParkedProject) {
+        Task.detached(priority: .userInitiated) { Parker.resume(project) }
+        NSWorkspace.shared.open([URL(fileURLWithPath: project.path)], withApplicationAt: URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app"), configuration: NSWorkspace.OpenConfiguration())
+        forget(project)
+    }
+
+    func forget(_ project: ParkedProject) {
+        parked.removeAll { $0.path == project.path }
+        saveParked()
+    }
+
+    func copy(_ command: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+    }
+
+    private func saveParked() {
+        do { try store.save(parked) } catch { lastError = "Could not save parked projects: \(error)" }
+    }
+
+    // MARK: DevSweeper
+
+    var devSweeperInstalled: Bool {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.devSweeperBundleID) != nil
+    }
+
+    /// Opens DevSweeper when it is installed, otherwise its website.
+    func openDevSweeper() {
+        if let app = NSWorkspace.shared.urlForApplication(withBundleIdentifier: Self.devSweeperBundleID) {
+            NSWorkspace.shared.openApplication(at: app, configuration: NSWorkspace.OpenConfiguration())
+        } else if let site = URL(string: "https://devsweeper.com/?ref=overhead") {
+            NSWorkspace.shared.open(site)
         }
     }
 

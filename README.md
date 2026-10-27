@@ -6,7 +6,7 @@ Overhead is a free, open-source menu bar app for developers. Activity Monitor li
 adds them up by the git checkout they run from, so `node`, `xcodebuild` and a Python server show up as one line:
 "my-app, 6.1 GB".
 
-## Status: 0.4, early
+## Status: 0.5, early
 
 Working now:
 
@@ -32,14 +32,17 @@ Working now:
   A booted iOS simulator runs close to 300 processes, so an idle one left open for a day can hold many gigabytes,
   much of it compressed or in swap.
 
+- Park a project when you are done with it for now. Park first shows what it will do, then stops the project's dev
+  servers (a polite quit signal to the server's process group, never your shell's) and shuts down the simulators
+  running the project's app, matched by bundle identifier. It never stops coding agents and never touches files; it
+  tells you about uncommitted changes. It keeps a setup sheet: branch, the commands that started the servers, the
+  simulators, and the names of your `.env` files (never their contents). Resume boots the simulators, opens the
+  folder in Terminal, and gives you each command to copy. Servers are not restarted for you, because they would miss
+  the environment your shell gives them.
+
 CPU per project is also the best guide to which project drains the battery: macOS does not report power per
 process. Memory per project and per simulator is the sum of each process's footprint, the figure Activity Monitor
 shows; it includes compressed memory, so the parts can add up to more than "in use".
-
-Planned:
-
-- Park a project: stop its servers and simulators in one click, and start them again later. Parking never deletes
-  files.
 
 ## Build
 
