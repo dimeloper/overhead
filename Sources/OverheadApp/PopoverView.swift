@@ -46,12 +46,29 @@ struct PopoverView: View {
                     .foregroundStyle(.secondary)
                 MemoryBar(memory: memory, projects: Array(model.attribution.projects.prefix(3)))
                     .padding(.top, 6)
+                HStack(alignment: .top, spacing: 8) {
+                    Stat(title: "CPU", value: model.cpuLoad.map(ByteFormat.percent) ?? "—")
+                    Stat(title: batteryTitle, value: batteryValue)
+                    Stat(title: "Swap", value: ByteFormat.short(memory.swapUsed))
+                }
+                .padding(.top, 8)
             } else if let error = model.lastError {
                 Text(error).foregroundStyle(.red)
             } else {
                 ProgressView().controlSize(.small)
             }
         }
+    }
+
+    private var batteryTitle: String {
+        guard let battery = model.battery else { return "Battery" }
+        return battery.onExternalPower ? "Battery \(battery.percent)%" : "Battery at this pace"
+    }
+
+    private var batteryValue: String {
+        guard let battery = model.battery else { return "No battery" }
+        if battery.onExternalPower { return battery.isCharging ? "Charging" : "On power" }
+        return model.runway.map(ByteFormat.duration) ?? "Measuring…"
     }
 
     private var projectList: some View {
@@ -98,6 +115,19 @@ struct PopoverView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+}
+
+struct Stat: View {
+    let title: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text(title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            Text(value).font(.system(size: 15, weight: .semibold)).monospacedDigit().lineLimit(1)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -181,7 +211,7 @@ struct ProjectRow: View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(usage.project.name).font(.body.weight(.semibold)).lineLimit(1)
-                Text(usage.processes.prefix(4).joined(separator: " · "))
+                Text(([ByteFormat.percent(usage.cpu) + " CPU"] + usage.processes.prefix(4)).joined(separator: " · "))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -193,6 +223,6 @@ struct ProjectRow: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 7)
-        .help(usage.project.path)
+        .help("\(usage.project.path)\nCPU is this project's share of the whole Mac, and the best guide to its battery use: macOS does not report power per process.")
     }
 }

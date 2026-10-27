@@ -6,18 +6,23 @@ Overhead is a free, open-source menu bar app for developers. Activity Monitor li
 adds them up by the git checkout they run from, so `node`, `xcodebuild` and a Python server show up as one line:
 "my-app, 6.1 GB".
 
-## Status: 0.1, early
+## Status: 0.2, early
 
 Working now:
 
-- Memory in use in the menu bar, with memory pressure and swap.
-- Memory per project. A process counts toward the deepest git checkout its working directory is in, so a worktree
-  gets its own row. Checkouts are found up to two folders below your home folder, plus agent worktrees in
+- Memory in use in the menu bar, with memory pressure and swap. On battery, the menu bar also shows how long the
+  battery lasts at your current pace.
+- Memory and CPU per project. A process counts toward the deepest git checkout its working directory is in, so a
+  worktree gets its own row. Checkouts are found up to two folders below your home folder, plus agent worktrees in
   `.claude/worktrees/`.
+- Battery time at this pace: remaining watt-hours divided by your average draw over the last 10 minutes. It starts
+  over when you unplug, so it follows how you work now rather than the last hour.
+
+CPU per project is also the best guide to which project drains the battery: macOS does not report power per
+process.
 
 Planned:
 
-- CPU and battery per project, and how long the battery lasts at the current pace.
 - Keep the Mac awake while a build, deploy or coding agent runs, and let it sleep when they finish.
 - Ports and dev servers per project, with a Stop button.
 - Booted simulators and the memory they hold.

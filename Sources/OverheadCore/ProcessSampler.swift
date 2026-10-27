@@ -7,12 +7,15 @@ public struct ProcessSample: Sendable, Equatable {
     public var name: String
     public var workingDirectory: String?
     public var footprint: UInt64
+    /// User + system CPU time since the process started, in nanoseconds.
+    public var cpuTime: UInt64
 
-    public init(pid: pid_t, name: String, workingDirectory: String?, footprint: UInt64) {
+    public init(pid: pid_t, name: String, workingDirectory: String?, footprint: UInt64, cpuTime: UInt64 = 0) {
         self.pid = pid
         self.name = name
         self.workingDirectory = workingDirectory
         self.footprint = footprint
+        self.cpuTime = cpuTime
     }
 }
 
@@ -33,7 +36,26 @@ public enum ProcessSampler {
             $0.withMemoryRebound(to: rusage_info_t?.self, capacity: 1) { proc_pid_rusage(pid, RUSAGE_INFO_V4, $0) }
         }
         guard ok == 0 else { return nil }
-        return ProcessSample(pid: pid, name: name(pid), workingDirectory: workingDirectory(pid), footprint: usage.ri_phys_footprint)
+        return ProcessSample(
+            pid: pid,
+            name: name(pid),
+            workingDirectory: workingDirectory(pid),
+            footprint: usage.ri_phys_footprint,
+            cpuTime: nanoseconds(usage.ri_user_time + usage.ri_system_time)
+        )
+    }
+
+    /// `proc_pid_rusage` reports CPU time in Mach ticks, not nanoseconds: 125/3 ns each on Apple silicon, 1 on Intel.
+    static let timebase: (numer: UInt64, denom: UInt64) = {
+        var info = mach_timebase_info_data_t()
+        mach_timebase_info(&info)
+        return (UInt64(info.numer), UInt64(max(info.denom, 1)))
+    }()
+
+    static func nanoseconds(_ ticks: UInt64) -> UInt64 {
+        ticks.multipliedReportingOverflow(by: timebase.numer).overflow
+            ? ticks / timebase.denom * timebase.numer
+            : ticks * timebase.numer / timebase.denom
     }
 
     static func name(_ pid: pid_t) -> String {

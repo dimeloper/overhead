@@ -14,7 +14,9 @@ public struct Project: Sendable, Hashable {
 public struct ProjectUsage: Sendable, Equatable {
     public var project: Project
     public var footprint: UInt64
-    /// Process names, largest first, without duplicates.
+    /// Share of the whole machine's CPU since the previous sample, 0...1.
+    public var cpu: Double
+    /// Process names, largest memory first, without duplicates.
     public var processes: [String]
 }
 
@@ -74,9 +76,9 @@ public enum ProjectDiscovery {
 public enum ProjectAttribution {
     /// Charges each process to the deepest project its working directory sits in, so a worktree inside a repo gets
     /// its own row instead of inflating the repo's.
-    public static func attribute(_ samples: [ProcessSample], to projects: [Project]) -> Attribution {
+    public static func attribute(_ samples: [ProcessSample], cpu: [pid_t: Double] = [:], to projects: [Project]) -> Attribution {
         let byDepth = projects.sorted { $0.path.count > $1.path.count }
-        var totals: [Project: (bytes: UInt64, processes: [(String, UInt64)])] = [:]
+        var totals: [Project: (bytes: UInt64, cpu: Double, processes: [(String, UInt64)])] = [:]
         var unattributed: UInt64 = 0
 
         for sample in samples {
@@ -84,14 +86,15 @@ public enum ProjectAttribution {
                 unattributed += sample.footprint
                 continue
             }
-            totals[project, default: (0, [])].bytes += sample.footprint
-            totals[project, default: (0, [])].processes.append((sample.name, sample.footprint))
+            totals[project, default: (0, 0, [])].bytes += sample.footprint
+            totals[project, default: (0, 0, [])].cpu += cpu[sample.pid] ?? 0
+            totals[project, default: (0, 0, [])].processes.append((sample.name, sample.footprint))
         }
 
         let usages = totals.map { project, total in
             var seen = Set<String>()
             let names = total.processes.sorted { $0.1 > $1.1 }.map(\.0).filter { seen.insert($0).inserted }
-            return ProjectUsage(project: project, footprint: total.bytes, processes: names)
+            return ProjectUsage(project: project, footprint: total.bytes, cpu: total.cpu, processes: names)
         }
         return Attribution(projects: usages.sorted { $0.footprint > $1.footprint }, unattributed: unattributed)
     }
