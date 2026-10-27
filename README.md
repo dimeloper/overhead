@@ -17,7 +17,19 @@ adds them up by the git checkout they run from, so `node`, `xcodebuild` and a Py
 The projects in these screenshots are made up. `./scripts/screenshots.sh` renders them with `--demo`, which never
 reads your own processes.
 
-## Status: 0.7, early
+## Install
+
+Download `Overhead-<version>.dmg` from the [latest release](https://github.com/dimeloper/overhead/releases/latest),
+open it and drag Overhead to Applications. It is signed and notarised by Apple, and runs on macOS 14 or later, on
+Apple silicon and Intel Macs.
+
+With Homebrew:
+
+```bash
+brew install --cask dimeloper/tap/overhead
+```
+
+## Status: 0.8, early
 
 Working now:
 
@@ -72,6 +84,7 @@ swift test                  # OverheadCore tests
 open build/Overhead.app
 build/Overhead.app/Contents/MacOS/Overhead --snapshot popover.png --full   # renders the popover to a PNG
 ./scripts/screenshots.sh    # regenerates the README screenshots from made-up projects
+./scripts/release.sh        # universal, Developer ID signed and notarised DMG (needs your own certificate)
 ```
 
 ## Privacy
