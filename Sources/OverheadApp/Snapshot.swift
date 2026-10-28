@@ -8,7 +8,7 @@ import SwiftUI
 enum Snapshot {
     /// The Settings window, laid out in a real window like the popover.
     static func settings(_ model: OverheadModel) throws -> Data {
-        let host = NSHostingView(rootView: SettingsView(model: model))
+        let host = NSHostingView(rootView: SettingsView(model: model, updater: Updater()))
         host.appearance = NSAppearance(named: .darkAqua)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 600), styleMask: [.titled], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .darkAqua)
@@ -73,7 +73,7 @@ enum Snapshot {
         DispatchQueue.main.asyncAfter(deadline: .now() + 7) {
             // `--full` lifts the scroll cap so every section is in the picture.
             let cap: CGFloat = arguments.contains("--full") ? 4000 : 520
-            let host = NSHostingView(rootView: PopoverView(model: model, listCap: cap).background(Color(nsColor: .windowBackgroundColor)))
+            let host = NSHostingView(rootView: PopoverView(model: model, updater: Updater(), listCap: cap).background(Color(nsColor: .windowBackgroundColor)))
             host.appearance = NSAppearance(named: .darkAqua)
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 440, height: 600), styleMask: [.borderless], backing: .buffered, defer: false)
             window.appearance = NSAppearance(named: .darkAqua)

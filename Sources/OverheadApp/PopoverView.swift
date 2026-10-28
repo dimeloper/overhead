@@ -12,6 +12,7 @@ enum Brand {
 
 struct PopoverView: View {
     @ObservedObject var model: OverheadModel
+    @ObservedObject var updater: Updater
     /// Tallest the lists get before they scroll. Snapshots lift it to show everything.
     var listCap: CGFloat = 520
     @State private var listHeight: CGFloat = 300
@@ -164,6 +165,16 @@ struct PopoverView: View {
             .keyboardShortcut(",")
             // Bring the window to the front: a menu bar app is never the active app.
             .simultaneousGesture(TapGesture().onEnded { NSApp.activate(ignoringOtherApps: true) })
+            if let version = updater.available {
+                Button {
+                    updater.check()
+                } label: {
+                    Label("Update to \(version)", systemImage: "arrow.down.circle.fill")
+                        .foregroundStyle(Brand.gradient)
+                }
+                .buttonStyle(.borderless)
+                .padding(.leading, 8)
+            }
             Spacer()
             Button("Quit Overhead") { NSApplication.shared.terminate(nil) }
                 .buttonStyle(.borderless)

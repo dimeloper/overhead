@@ -5,6 +5,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var model: OverheadModel
+    @ObservedObject var updater: Updater
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var loginError: String?
 
@@ -67,6 +68,10 @@ struct SettingsView: View {
 
             Section("About") {
                 LabeledContent("Version", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev")
+                if updater.isRunning {
+                    Toggle("Check for updates automatically", isOn: $updater.automaticChecks)
+                    Button("Check for Updates…", action: updater.check)
+                }
                 Link("Source code on GitHub", destination: URL(string: "https://github.com/dimeloper/overhead")!)
             }
         }

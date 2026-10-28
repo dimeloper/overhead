@@ -276,11 +276,36 @@ final class OverheadModel: ObservableObject {
     /// Coding agent sessions running across all projects.
     var agentSessions: Int { attribution.projects.reduce(0) { $0 + $1.agentSessions } }
 
-    /// Opens DevSweeper when it is installed, otherwise its website.
-    func openDevSweeper() { open(Self.devSweeperBundleID, site: "https://devsweeper.com/?ref=overhead") }
+    /// Opens DevSweeper on the parked project's build output when DevSweeper handles `devsweeper://` links, DevSweeper
+    /// itself when it is an older version, and its website when it isn't installed. With several parked projects the
+    /// link goes to the most recently parked.
+    func openDevSweeper() {
+        if let project = parked.max(by: { $0.parkedAt < $1.parkedAt }), let link = Self.devSweeperLink(for: project.path),
+           NSWorkspace.shared.urlForApplication(toOpen: link) != nil {
+            NSWorkspace.shared.open(link)
+            return
+        }
+        open(Self.devSweeperBundleID, site: Self.site("https://devsweeper.com/", campaign: "parked-hint"))
+    }
 
     /// Opens AgentNod when it is installed, otherwise its website.
-    func openAgentNod() { open(Self.agentNodBundleID, site: "https://agentnod.app/?ref=overhead") }
+    func openAgentNod() { open(Self.agentNodBundleID, site: Self.site("https://agentnod.app/", campaign: "agents-hint")) }
+
+    /// `devsweeper://project?path=<absolute path>`: DevSweeper shows what it can reclaim in that project and cleans
+    /// nothing until you choose to.
+    static func devSweeperLink(for path: String) -> URL? {
+        var components = URLComponents()
+        components.scheme = "devsweeper"
+        components.host = "project"
+        components.queryItems = [URLQueryItem(name: "path", value: path)]
+        return components.url
+    }
+
+    /// UTM tags, which the sites' analytics record on the page view, so a visit from Overhead can be told apart.
+    /// They say which hint was clicked and nothing about you or your Mac.
+    static func site(_ base: String, campaign: String) -> String {
+        "\(base)?utm_source=overhead&utm_medium=app&utm_campaign=\(campaign)"
+    }
 
     private func installedApp(_ bundleID: String) -> URL? {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)

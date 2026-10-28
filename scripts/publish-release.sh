@@ -1,10 +1,13 @@
 #!/bin/bash
-# Publishes a release built by scripts/release.sh: tags v<version>, uploads the DMG to GitHub Releases with
-# docs/release-notes/<version>.md, checks the upload, then points the Homebrew cask at it and pushes the tap.
+# Publishes a release built by scripts/release.sh: tags v<version>, uploads the DMG and a signed update feed
+# (appcast.xml) to GitHub Releases with docs/release-notes/<version>.md, checks both uploads, then points the Homebrew
+# cask at it and pushes the tap. The app reads the feed from the latest release, so publishing is what ships an update.
 # Usage: scripts/publish-release.sh [--dry-run]
 #
 # --dry-run runs every check and shows the cask change, but tags, uploads and pushes nothing.
 # OVERHEAD_TAP_DIR is a clone of the tap (default ../homebrew-tap); OVERHEAD_REPO the GitHub repo.
+# OVERHEAD_SPARKLE_ACCOUNT is the keychain account holding the update signing key (default overhead; made with
+# .build/artifacts/sparkle/Sparkle/bin/generate_keys --account overhead).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -18,12 +21,17 @@ TAG="v$VERSION"
 NAME="Overhead-$VERSION.dmg"
 DMG="build/$NAME"
 NOTES="docs/release-notes/$VERSION.md"
+ACCOUNT="${OVERHEAD_SPARKLE_ACCOUNT:-overhead}"
+TOOLS=".build/artifacts/sparkle/Sparkle/bin"
+FEED="build/appcast/appcast.xml"
 
 fail() { echo "$1" >&2; exit 1; }
 [ -f "$DMG" ] || fail "No $DMG. Run scripts/release.sh first."
 xcrun stapler validate "$DMG" >/dev/null 2>&1 || fail "$DMG is not notarised and stapled. Run scripts/release.sh."
 [ -f "$NOTES" ] || fail "No $NOTES. Write the release notes first."
 [ -f "$CASK" ] || fail "No cask at $CASK. Clone the tap there or set OVERHEAD_TAP_DIR."
+[ -x "$TOOLS/generate_appcast" ] || fail "No Sparkle tools in $TOOLS. Run swift build once."
+"$TOOLS/generate_keys" --account "$ACCOUNT" -p >/dev/null 2>&1 || fail "No update signing key under keychain account '$ACCOUNT'."
 
 # The DMG must be built from what the tag will point at: committed, on main, pushed.
 [ -z "$(git status --porcelain)" ] || fail "Uncommitted changes. Commit them, rebuild, then publish."
@@ -43,8 +51,21 @@ if [ -n "$(git -C "$TAP" status --porcelain)" ]; then fail "The tap at $TAP has 
 SHA="$(shasum -a 256 < "$DMG" | cut -c1-64)"
 echo "Publishing Overhead $VERSION ($SHA)"
 
+# The feed holds this release only: a fresh folder with the DMG and its notes, which generate_appcast signs with the
+# key and embeds. Every installed copy, whatever its version, is offered the latest.
+rm -rf build/appcast
+mkdir -p build/appcast
+cp "$DMG" "build/appcast/$NAME"
+cp "$NOTES" "build/appcast/${NAME%.dmg}.md"
+"$TOOLS/generate_appcast" --account "$ACCOUNT" --embed-release-notes \
+  --download-url-prefix "https://github.com/$REPO/releases/download/$TAG/" \
+  --full-release-notes-url "https://github.com/$REPO/releases/tag/$TAG" \
+  --link "https://github.com/$REPO" build/appcast >/dev/null
+grep -q "sparkle:edSignature=" "$FEED" || fail "$FEED has no signature."
+grep -q "<sparkle:shortVersionString>$VERSION</sparkle:shortVersionString>" "$FEED" || fail "$FEED is not for $VERSION."
+
 if [ "$DRY_RUN" = 1 ]; then
-  echo "Dry run: would tag $TAG at $(git rev-parse --short HEAD), upload $DMG to $REPO, and set the cask to:"
+  echo "Dry run: would tag $TAG at $(git rev-parse --short HEAD), upload $DMG and $FEED to $REPO, and set the cask to:"
   sed -e "s/^  version \".*\"/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" "$CASK" | diff "$CASK" - || true
   exit 0
 fi
@@ -53,10 +74,13 @@ if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then git tag -a "$TA
 [ "$(git rev-parse "$TAG^{commit}")" = "$(git rev-parse HEAD)" ] || fail "Tag $TAG exists and points at another commit."
 git push -q origin "$TAG"
 
-gh release create "$TAG" "$DMG#$NAME" --repo "$REPO" --title "Overhead $VERSION" --notes-file "$NOTES" --verify-tag
+gh release create "$TAG" "$DMG#$NAME" "$FEED#appcast.xml" --repo "$REPO" --title "Overhead $VERSION" --notes-file "$NOTES" --verify-tag
 # Read the upload back before the cask points at it.
 GOT="$(curl -fsSL "https://github.com/$REPO/releases/download/$TAG/$NAME" | shasum -a 256 | cut -c1-64)"
 [ "$GOT" = "$SHA" ] || fail "The upload of $NAME does not match $DMG ($GOT vs $SHA). The cask was not changed."
+# The address every installed copy checks, through GitHub's redirect to the latest release.
+curl -fsSL "https://github.com/$REPO/releases/latest/download/appcast.xml" | cmp -s - "$FEED" \
+  || fail "The latest release's appcast.xml is not the one just built. Is $TAG marked as the latest release?"
 
 git -C "$TAP" pull -q --ff-only
 sed -i '' -e "s/^  version \".*\"/  version \"$VERSION\"/" -e "s/^  sha256 \".*\"/  sha256 \"$SHA\"/" "$CASK"

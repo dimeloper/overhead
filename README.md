@@ -29,7 +29,10 @@ With Homebrew:
 brew install --cask dimeloper/tap/overhead
 ```
 
-## Status: 0.8, early
+From 0.9, Overhead updates itself: it checks once a day and offers a new version in the popover, and you can turn
+that off in Settings. Updates are signed, and Overhead installs only one whose signature matches its own key.
+
+## Status: 0.9, early
 
 Working now:
 
@@ -88,13 +91,16 @@ build/Overhead.app/Contents/MacOS/Overhead --snapshot popover.png --full   # ren
 ```
 
 A release: bump the version in `scripts/Info.plist`, write `docs/release-notes/<version>.md`, commit and push, then
-run `scripts/release.sh` and `scripts/publish-release.sh`. The second tags the commit, uploads the DMG to GitHub
-Releases, checks the upload, and updates the Homebrew cask. `--dry-run` shows what it would do.
+run `scripts/release.sh` and `scripts/publish-release.sh`. The second tags the commit, uploads the DMG and a signed
+update feed (`appcast.xml`) to GitHub Releases, checks both uploads, and updates the Homebrew cask. Signing the feed
+needs the update key in your keychain (`generate_keys --account overhead`, from Sparkle). `--dry-run` shows what it would do.
 
 ## Privacy
 
 Overhead reads process names, memory figures and working directories on your Mac. It sends nothing anywhere: no
-account, no analytics, no network access.
+account, no analytics. Its only network request is the update check, which downloads `appcast.xml` from this repo's
+latest GitHub release once a day. The request names Overhead and its version, as any app's user agent does; system
+profiling is off. Turn checking off in Settings.
 
 ## From the same developer
 
